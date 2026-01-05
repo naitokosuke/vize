@@ -317,7 +317,22 @@ fn compile_script_setup_inline(
 
     let mut output = String::new();
 
-    // Template imports first (Vue helpers)
+    // Check if we need mergeDefaults import (props destructure with defaults)
+    let has_props_destructure = ctx.macros.props_destructure.is_some();
+    let needs_merge_defaults = has_props_destructure
+        && ctx
+            .macros
+            .props_destructure
+            .as_ref()
+            .map(|d| d.bindings.values().any(|b| b.default.is_some()))
+            .unwrap_or(false);
+
+    // mergeDefaults import comes first if needed
+    if needs_merge_defaults {
+        output.push_str("import { mergeDefaults as _mergeDefaults } from 'vue'\n");
+    }
+
+    // Template imports (Vue helpers)
     if !template.imports.is_empty() {
         output.push_str(template.imports);
         // Blank line after template imports
@@ -511,9 +526,34 @@ fn compile_script_setup_inline(
                 output.push_str("  },\n");
             }
         } else if !props_macro.args.is_empty() {
-            output.push_str("  props: ");
-            output.push_str(&props_macro.args);
-            output.push_str(",\n");
+            if needs_merge_defaults {
+                // Use mergeDefaults format: _mergeDefaults(['prop1', 'prop2'], { prop2: default })
+                let destructure = ctx.macros.props_destructure.as_ref().unwrap();
+                output.push_str("  props: /*@__PURE__*/_mergeDefaults(");
+                output.push_str(&props_macro.args);
+                output.push_str(", {\n");
+                // Collect defaults
+                let defaults: Vec<_> = destructure
+                    .bindings
+                    .iter()
+                    .filter_map(|(k, b)| b.default.as_ref().map(|d| (k.as_str(), d.as_str())))
+                    .collect();
+                for (i, (key, default_val)) in defaults.iter().enumerate() {
+                    output.push_str("  ");
+                    output.push_str(key);
+                    output.push_str(": ");
+                    output.push_str(default_val);
+                    if i < defaults.len() - 1 {
+                        output.push(',');
+                    }
+                    output.push('\n');
+                }
+                output.push_str("}),\n");
+            } else {
+                output.push_str("  props: ");
+                output.push_str(&props_macro.args);
+                output.push_str(",\n");
+            }
         }
     }
 
@@ -937,6 +977,18 @@ fn compile_script_setup(
         output.push_str("import { defineVaporComponent as _defineVaporComponent } from 'vue'\n");
     }
 
+    // Add mergeDefaults import if props destructure has defaults
+    let needs_merge_defaults = has_props_destructure
+        && ctx
+            .macros
+            .props_destructure
+            .as_ref()
+            .map(|d| d.bindings.values().any(|b| b.default.is_some()))
+            .unwrap_or(false);
+    if needs_merge_defaults {
+        output.push_str("import { mergeDefaults as _mergeDefaults } from 'vue'\n");
+    }
+
     // Output imports (filtering out type-only imports)
     for import in &imports {
         if let Some(processed) = process_import_for_types(import) {
@@ -966,46 +1018,44 @@ fn compile_script_setup(
     if has_props_destructure {
         let destructure = ctx.macros.props_destructure.as_ref().unwrap();
 
-        // Extract type information from define_props type_args if available
-        let type_info = ctx
-            .macros
-            .define_props
-            .as_ref()
-            .and_then(|p| p.type_args.as_ref())
-            .map(|t| extract_prop_types_from_type(t))
-            .unwrap_or_default();
+        // Check if there are any defaults
+        let has_defaults = destructure.bindings.values().any(|b| b.default.is_some());
 
-        // Generate props with proper type definitions
-        output.push_str("  props: {\n");
-        for (key, binding) in &destructure.bindings {
-            let prop_type = type_info.get(key);
-            let has_default = binding.default.is_some();
-            let is_optional = prop_type.map(|t| t.optional).unwrap_or(has_default);
+        if has_defaults {
+            // Use mergeDefaults format: _mergeDefaults(['prop1', 'prop2'], { prop2: default })
+            // Get the original props argument from defineProps
+            let original_props = ctx
+                .macros
+                .define_props
+                .as_ref()
+                .map(|p| p.args.as_str())
+                .unwrap_or("[]");
 
-            output.push_str("    ");
-            output.push_str(key);
-            output.push_str(": { ");
+            output.push_str("  props: /*@__PURE__*/_mergeDefaults(");
+            output.push_str(original_props);
+            output.push_str(", {\n");
 
-            // Add type if available
-            if let Some(pt) = prop_type {
-                output.push_str("type: ");
-                output.push_str(&pt.js_type);
-                output.push_str(", ");
+            // Add defaults
+            for (key, binding) in &destructure.bindings {
+                if let Some(ref default_val) = binding.default {
+                    output.push_str("  ");
+                    output.push_str(key);
+                    output.push_str(": ");
+                    output.push_str(default_val);
+                    output.push('\n');
+                }
             }
-
-            // Add required
-            output.push_str("required: ");
-            output.push_str(if is_optional { "false" } else { "true" });
-
-            // Add default if present
-            if let Some(ref default_val) = binding.default {
-                output.push_str(", default: ");
-                output.push_str(default_val);
+            output.push_str("}),\n");
+        } else {
+            // No defaults - just use the original props array
+            if let Some(ref props_macro) = ctx.macros.define_props {
+                if !props_macro.args.is_empty() {
+                    output.push_str("  props: ");
+                    output.push_str(&props_macro.args);
+                    output.push_str(",\n");
+                }
             }
-
-            output.push_str(" },\n");
         }
-        output.push_str("  },\n");
     } else if let Some(ref props_macro) = ctx.macros.define_props {
         if let Some(ref type_args) = props_macro.type_args {
             // For type-based props, extract full prop definitions
