@@ -3,7 +3,7 @@
 //! A high-performance CLI for compiling Vue SFC files with native multithreading.
 
 use clap::{Parser, ValueEnum};
-use glob::glob;
+use ignore::Walk;
 use oxc_allocator::Allocator;
 use oxc_codegen::Codegen;
 use oxc_parser::Parser as OxcParser;
@@ -113,23 +113,78 @@ struct CompileOutput {
 
 fn collect_files(patterns: &[String]) -> Vec<PathBuf> {
     let mut files = Vec::new();
+
     for pattern in patterns {
-        match glob(pattern) {
-            Ok(paths) => {
-                for entry in paths.flatten() {
-                    if entry.extension().is_some_and(|ext| ext == "vue") {
-                        files.push(entry);
-                    }
+        // Handle simple patterns: ./**/*.vue or similar
+        let (root, glob_pattern) = parse_pattern(pattern);
+
+        // Use ignore crate for efficient directory walking
+        for entry in Walk::new(&root).flatten() {
+            let path = entry.path();
+
+            // Only process .vue files
+            if path.extension().is_some_and(|ext| ext == "vue") {
+                // Check if path matches the glob pattern
+                if pattern_matches(path, &glob_pattern) {
+                    files.push(path.to_path_buf());
                 }
-            }
-            Err(e) => {
-                eprintln!("Invalid glob pattern '{}': {}", pattern, e);
             }
         }
     }
+
     files.sort();
     files.dedup();
     files
+}
+
+/// Parse a glob pattern to extract the root directory and glob component
+fn parse_pattern(pattern: &str) -> (String, String) {
+    // Handle patterns like "./**/*.vue", "src/**/*.vue", etc.
+    if let Some(rest) = pattern.strip_prefix("./") {
+        // Find the first occurrence of * or ?
+        if let Some(pos) = rest.find(['*', '?']) {
+            // Everything before the first glob char is the root
+            let root_part = &rest[..pos];
+            // Find the last / before the glob char
+            if let Some(last_slash) = root_part.rfind('/') {
+                let root = format!("./{}", &root_part[..last_slash]);
+                return (root, pattern.to_string());
+            }
+        }
+
+        return (".".to_string(), pattern.to_string());
+    }
+
+    // Default case
+    (".".to_string(), pattern.to_string())
+}
+
+/// Simple glob pattern matching for .vue files
+fn pattern_matches(path: &std::path::Path, pattern: &str) -> bool {
+    let path_str = path.to_string_lossy().replace("\\", "/"); // Normalize to forward slashes
+
+    // Convert glob pattern to regex-like matching
+    if pattern == "./**/*.vue" || pattern == "**/*.vue" {
+        return path_str.ends_with(".vue");
+    }
+
+    // Handle patterns like "src/**/*.vue"
+    if pattern.contains("**/*.vue") {
+        if let Some(prefix_end) = pattern.find("**") {
+            let prefix = &pattern[..prefix_end];
+            let prefix_normalized = prefix.trim_end_matches('/');
+            return path_str.contains(&format!("{}/", prefix_normalized))
+                && path_str.ends_with(".vue");
+        }
+    }
+
+    // Exact pattern matching
+    if pattern.ends_with(".vue") {
+        return path_str.ends_with(pattern);
+    }
+
+    // Default: match if ends with .vue
+    path_str.ends_with(".vue")
 }
 
 /// Detect the script language from Vue SFC source
