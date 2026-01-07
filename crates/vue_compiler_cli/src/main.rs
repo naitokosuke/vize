@@ -229,8 +229,6 @@ fn main() {
         })
         .collect();
 
-    let elapsed = start.elapsed();
-
     // Output results
     match cli.format {
         OutputFormat::Stats => {
@@ -267,6 +265,9 @@ fn main() {
             }
         }
     }
+
+    // Measure total elapsed time (including I/O)
+    let elapsed = start.elapsed();
 
     // Print stats
     let success = stats.success.load(Ordering::Relaxed);
