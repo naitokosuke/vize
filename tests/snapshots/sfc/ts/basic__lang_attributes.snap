@@ -1,18 +1,17 @@
 ---
-source: crates/vue_compiler_sfc/src/snapshot_tests.rs
-assertion_line: 126
+source: crates/vize_compiler_sfc/src/snapshot_tests.rs
+assertion_line: 128
 expression: ts_output
 ---
 import { defineComponent } from 'vue'
 import { openBlock as _openBlock, createElementBlock as _createElementBlock, toDisplayString as _toDisplayString } from "vue"
 
 
-const count: number = 0
-
 export default defineComponent({
   name: 'test',
   setup(__props) {
 
+const count: number = 0
 
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", null, _toDisplayString(count)))

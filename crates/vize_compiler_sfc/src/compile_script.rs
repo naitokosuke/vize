@@ -116,7 +116,6 @@ pub(crate) fn compile_script_setup_inline(
     // Extract user imports
     let mut user_imports = Vec::new();
     let mut setup_lines = Vec::new();
-    let mut hoisted_lines = Vec::new(); // const with literals go outside export default
 
     // Parse script content - extract imports and setup code
     let mut in_import = false;
@@ -388,12 +387,10 @@ pub(crate) fn compile_script_setup_inline(
         }
 
         if !trimmed.is_empty() && !is_macro_call_line(trimmed) {
-            // Check if this is a hoistable const (const with literal value, no function calls)
-            if is_hoistable_const(trimmed) {
-                hoisted_lines.push(line.to_string());
-            } else {
-                setup_lines.push(line.to_string());
-            }
+            // All user code goes to setup_lines
+            // Hoisting user-defined consts is problematic without proper AST-based scope tracking
+            // Template-generated _hoisted_X consts are handled separately by template.hoisted
+            setup_lines.push(line.to_string());
         }
     }
 
@@ -410,15 +407,6 @@ pub(crate) fn compile_script_setup_inline(
     if !template.hoisted.is_empty() {
         output.push(b'\n');
         output.extend_from_slice(template.hoisted.as_bytes());
-    }
-
-    // User hoisted const declarations (outside export default)
-    if !hoisted_lines.is_empty() {
-        output.push(b'\n');
-        for line in &hoisted_lines {
-            output.extend_from_slice(line.as_bytes());
-            output.push(b'\n');
-        }
     }
 
     // Start export default (blank line before)
@@ -1577,8 +1565,13 @@ pub(crate) fn transform_typescript_to_js(code: &str) -> String {
     let (symbols, scopes) = semantic_ret.semantic.into_symbol_table_and_scope_tree();
 
     // Transform TypeScript to JavaScript
+    // Use only_remove_type_imports to preserve component imports that appear "unused"
+    // but are actually used by the template
     let transform_options = TransformOptions {
-        typescript: TypeScriptOptions::default(),
+        typescript: TypeScriptOptions {
+            only_remove_type_imports: true,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let ret = Transformer::new(&allocator, std::path::Path::new(""), &transform_options)
@@ -1644,68 +1637,6 @@ pub(crate) fn is_paren_macro_start(line: &str) -> bool {
         }
     }
     false
-}
-
-/// Check if a line is a hoistable const (const with literal value, no function calls)
-/// These can be placed outside of setup() for optimization
-pub(crate) fn is_hoistable_const(line: &str) -> bool {
-    let trimmed = line.trim();
-
-    // Must start with "const " (not let/var)
-    if !trimmed.starts_with("const ") {
-        return false;
-    }
-
-    // Must not contain function calls (parentheses)
-    if trimmed.contains('(') {
-        return false;
-    }
-
-    // Must not contain arrow functions
-    if trimmed.contains("=>") {
-        return false;
-    }
-
-    // Must be a simple assignment (contains =)
-    if !trimmed.contains('=') {
-        return false;
-    }
-
-    // Must not be a destructure
-    if trimmed.starts_with("const {") || trimmed.starts_with("const [") {
-        return false;
-    }
-
-    // Must not be an incomplete multiline generic (e.g., "const x = ref<")
-    // This would be part of a multiline type declaration
-    let open_angles = trimmed.matches('<').count();
-    let close_angles = trimmed.matches('>').count();
-    if open_angles > close_angles {
-        return false;
-    }
-
-    // Must end with a semicolon or be a complete statement
-    // (avoid hoisting incomplete lines)
-    if !trimmed.ends_with(';') && !trimmed.ends_with('}') && !trimmed.ends_with(']') {
-        // Check if it looks like a complete simple literal assignment
-        // const x = "value" or const x = 123 or const x = true
-        let after_eq = trimmed.split('=').nth(1).map(|s| s.trim()).unwrap_or("");
-        if after_eq.is_empty()
-            || after_eq.ends_with('<')
-            || (!after_eq.starts_with('"')
-                && !after_eq.starts_with('\'')
-                && !after_eq.starts_with('`')
-                && after_eq.parse::<f64>().is_err()
-                && after_eq != "true"
-                && after_eq != "false"
-                && after_eq != "null"
-                && after_eq != "undefined")
-        {
-            return false;
-        }
-    }
-
-    true
 }
 
 /// Check if a line starts a multi-line macro call (e.g., defineEmits<{ ... }>())

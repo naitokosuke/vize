@@ -156,8 +156,8 @@ impl Compiler {
                 .unwrap_or(false);
         let use_vapor = has_vapor_attr || opts.output_mode.as_deref() == Some("vapor");
 
-        // Detect TypeScript from script lang attribute
-        let is_ts = descriptor
+        // Detect TypeScript from script lang attribute (for source detection)
+        let source_is_ts = descriptor
             .script_setup
             .as_ref()
             .and_then(|s| s.lang.as_ref())
@@ -170,9 +170,17 @@ impl Compiler {
                 .map(|l| l == "ts" || l == "tsx")
                 .unwrap_or(false);
 
-        // Update opts with is_ts
+        // Determine output format: preserve TypeScript or downcompile to JavaScript
+        // script_ext option: "preserve" keeps TypeScript, "downcompile" (default) transpiles to JS
+        let output_is_ts = opts
+            .script_ext
+            .as_deref()
+            .map(|ext| ext == "preserve")
+            .unwrap_or(false); // Default to downcompile (transpile to JS)
+
+        // Update opts with source detection for backwards compatibility
         let mut opts = opts;
-        if is_ts {
+        if source_is_ts {
             opts.is_ts = Some(true);
         }
 
@@ -187,6 +195,7 @@ impl Compiler {
         };
 
         // Full SFC compilation using sfc_compile
+        // Use output_is_ts to control whether TypeScript is preserved or transpiled
         let sfc_opts = SfcCompileOptions {
             parse: SfcParseOptions {
                 filename: filename.clone(),
@@ -194,14 +203,14 @@ impl Compiler {
             },
             script: ScriptCompileOptions {
                 id: Some(filename.clone()),
-                is_ts,
+                is_ts: output_is_ts,
                 ..Default::default()
             },
             template: TemplateCompileOptions {
                 id: Some(filename.clone()),
                 scoped: descriptor.styles.iter().any(|s| s.scoped),
                 ssr: opts.ssr.unwrap_or(false),
-                is_ts,
+                is_ts: output_is_ts,
                 ..Default::default()
             },
             style: StyleCompileOptions {

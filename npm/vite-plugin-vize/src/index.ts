@@ -4,9 +4,33 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import MagicString from 'magic-string';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+
+/**
+ * Rewrite `export default { ... }` to `const __sfc__ = { ... }; export default __sfc__;`
+ */
+function rewriteDefault(code: string, as: string): string {
+  const s = new MagicString(code);
+  const exportDefaultMatch = code.match(/\bexport\s+default\s+/);
+
+  if (!exportDefaultMatch || exportDefaultMatch.index === undefined) {
+    return code;
+  }
+
+  const start = exportDefaultMatch.index;
+  const end = start + exportDefaultMatch[0].length;
+
+  // Replace "export default " with "const __sfc__ = "
+  s.overwrite(start, end, `const ${as} = `);
+
+  // Append "export default __sfc__;" at the end
+  s.append(`\nexport default ${as};`);
+
+  return s.toString();
+}
 
 export interface VizeOptions {
   include?: string | RegExp | (string | RegExp)[];
@@ -179,15 +203,18 @@ ${output}`;
 
         // Add HMR support
         if (!isProduction && config?.command === 'serve') {
+          // Rewrite "export default { ... }" to "const __sfc__ = { ... }; export default __sfc__;"
+          output = rewriteDefault(output, '__sfc__');
           output += `
 if (import.meta.hot) {
+  __sfc__.__hmrId = ${JSON.stringify(scopeId)};
   import.meta.hot.accept(mod => {
     if (!mod) return;
     const { default: updated } = mod;
-    __sfc__.__hmrId = ${JSON.stringify(scopeId)};
-    __VUE_HMR_RUNTIME__.reload(__sfc__.__hmrId, updated);
+    if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
+      __VUE_HMR_RUNTIME__.reload(__sfc__.__hmrId, updated);
+    }
   });
-  __sfc__.__hmrId = ${JSON.stringify(scopeId)};
   if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
     __VUE_HMR_RUNTIME__.createRecord(__sfc__.__hmrId, __sfc__);
   }

@@ -90,8 +90,17 @@ pub fn generate_if_branch(
                     ctx.push(ctx.helper(RuntimeHelper::CreateBlock));
                     ctx.push("(");
                     // Generate component name
-                    let component_name = format!("_component_{}", el.tag.as_str());
-                    ctx.push(&component_name);
+                    // In inline mode, components are directly in scope (imported at module level)
+                    // In function mode, use $setup.ComponentName to access setup bindings
+                    if ctx.is_component_in_bindings(&el.tag) {
+                        if !ctx.options.inline {
+                            ctx.push("$setup.");
+                        }
+                        ctx.push(el.tag.as_str());
+                    } else {
+                        let component_name = format!("_component_{}", el.tag.as_str());
+                        ctx.push(&component_name);
+                    }
                     ctx.push(", { key: ");
                     generate_if_branch_key(ctx, branch, branch_index);
                     ctx.push(" }))");

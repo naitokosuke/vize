@@ -407,8 +407,12 @@ fn extract_normal_script_content(content: &str, source_is_ts: bool, output_is_ts
                 let (symbols, scopes) = semantic_ret.semantic.into_symbol_table_and_scope_tree();
 
                 // Transform TypeScript to JavaScript
+                // Use only_remove_type_imports to preserve imports that might be used in template
                 let transform_options = TransformOptions {
-                    typescript: TypeScriptOptions::default(),
+                    typescript: TypeScriptOptions {
+                        only_remove_type_imports: true,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 };
                 let transform_ret =

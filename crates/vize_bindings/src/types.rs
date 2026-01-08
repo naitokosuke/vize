@@ -40,6 +40,10 @@ pub struct CompilerOptions {
     /// Whether the template contains TypeScript
     #[serde(default)]
     pub is_ts: Option<bool>,
+    /// Script extension handling: "preserve" (keep TypeScript) or "downcompile" (transpile to JS)
+    /// Defaults to "downcompile"
+    #[serde(default)]
+    pub script_ext: Option<String>,
 }
 
 /// Compile result

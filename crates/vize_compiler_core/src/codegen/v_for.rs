@@ -193,8 +193,18 @@ pub fn generate_for_item(ctx: &mut CodegenContext, node: &TemplateChildNode<'_>,
                     // Component: use createBlock
                     ctx.use_helper(RuntimeHelper::CreateBlock);
                     ctx.push(ctx.helper(RuntimeHelper::CreateBlock));
-                    ctx.push("(_component_");
-                    ctx.push(&el.tag.replace('-', "_"));
+                    ctx.push("(");
+                    // In inline mode, components are directly in scope (imported at module level)
+                    // In function mode, use $setup.ComponentName to access setup bindings
+                    if ctx.is_component_in_bindings(&el.tag) {
+                        if !ctx.options.inline {
+                            ctx.push("$setup.");
+                        }
+                        ctx.push(&el.tag);
+                    } else {
+                        ctx.push("_component_");
+                        ctx.push(&el.tag.replace('-', "_"));
+                    }
                 } else if is_template {
                     // Template: use Fragment
                     ctx.use_helper(RuntimeHelper::CreateElementBlock);
