@@ -1,7 +1,7 @@
 /**
  * SFC Compile Benchmark
  *
- * Compares @vue/compiler-sfc with vue-compiler-rs native batch compilation.
+ * Compares @vue/compiler-sfc with vize native batch compilation.
  *
  * Usage:
  *   1. Generate test files: node generate.mjs [count]
@@ -64,7 +64,7 @@ interface CompileResult {
 
 // Load Native (NAPI) bindings
 let native: NativeBindings | null = null;
-const nativePath = join(__dirname, "..", "packages", "vue-compiler-rs-native");
+const nativePath = join(__dirname, "..", "npm", "vize-native");
 if (existsSync(nativePath)) {
   try {
     native = require(nativePath) as NativeBindings;
@@ -257,7 +257,7 @@ console.log();
 console.log(" Compilers:");
 console.log(`   Original : @vue/compiler-sfc`);
 console.log(
-  `   Native   : vue-compiler-rs (NAPI)  ${native ? "OK" : "NOT FOUND"}`
+  `   Native   : vize (NAPI)  ${native ? "OK" : "NOT FOUND"}`
 );
 console.log();
 console.log("-".repeat(65));

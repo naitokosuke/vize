@@ -1,0 +1,15 @@
+[package]
+name = "vize_allocator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Arena allocator for Vize, wrapping bumpalo"
+
+[dependencies]
+bumpalo = { workspace = true }
+compact_str = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[features]
+default = []
+serialize = ["serde"]

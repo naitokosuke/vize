@@ -1,0 +1,17 @@
+[package]
+name = "vize_compiler_vapor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vize_allocator = { workspace = true }
+vize_shared = { workspace = true }
+vize_compiler_core = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

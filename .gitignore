@@ -6,7 +6,7 @@ node_modules/
 pnpm-lock.yaml
 
 # WASM build output
-packages/vite-plugin-vue-compiler-rs/wasm/
+npm/vite-plugin-vize/wasm/
 
 # Native (NAPI) build output
 *.node

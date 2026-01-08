@@ -1,4 +1,4 @@
-// WASM module loader for vue-compiler-rs
+// WASM module loader for vize
 
 export interface CompilerOptions {
   mode?: 'function' | 'module';
@@ -114,7 +114,7 @@ export async function loadWasm(): Promise<WasmModule> {
   loadPromise = (async () => {
     try {
       // Try to load the actual WASM module
-      const wasm = await import('./vue_bindings.js');
+      const wasm = await import('./vize_bindings.js');
       await wasm.default();
       wasmModule = wasm as unknown as WasmModule;
       return wasmModule;

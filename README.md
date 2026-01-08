@@ -1,14 +1,28 @@
-# vue-compiler-rs
+<p align="center">
+  <img src="./assets/logo.svg" alt="Vize Logo" width="400" />
+</p>
 
-A high-performance Rust implementation of the Vue.js compiler.
+<h1 align="center">Vize</h1>
 
-**[Playground](https://ubugeeei.github.io/vue-compiler-rs/)**
+<p align="center">
+  <strong>Unofficial Fastest Vue.js Compiler Collection</strong>
+</p>
+
+<p align="center">
+  <em>A high-performance Rust implementation of the Vue.js compiler.<br/>Named after Vizier + Visor + Advisor — a wise tool that sees through your code.</em>
+</p>
+
+<p align="center">
+  <a href="https://ubugeeei.github.io/vize/"><strong>Playground</strong></a>
+</p>
+
+---
 
 ## Performance
 
 Compiling **15,000 SFC files** (36.9 MB):
 
-|  | @vue/compiler-sfc | vue-compiler-rs | Speedup |
+|  | @vue/compiler-sfc | Vize | Speedup |
 |--|-------------------|-----------------|---------|
 | **Single Thread** | 19.28s | 4.80s | **4.0x** |
 | **Multi Thread** (10 workers) | 5.95s | 692ms | **8.6x** (27.9x vs Original 1T) |
@@ -48,10 +62,10 @@ The CLI supports two output modes via `--script-ext`:
 
 ```bash
 # Preserve TypeScript output (recommended for TypeScript projects)
-vuec "src/**/*.vue" --script-ext preserve -o dist
+vize "src/**/*.vue" --script-ext preserve -o dist
 
 # Downcompile to JavaScript (default)
-vuec "src/**/*.vue" -o dist
+vize "src/**/*.vue" -o dist
 ```
 
 ### Known Limitations
@@ -89,22 +103,22 @@ Run `mise tasks` to see all available commands.
 
 ```bash
 # Build CLI
-cargo build -p vue_compiler_cli --release
+cargo build -p vize_compiler_cli --release
 
 # Compile single file
-./target/release/vuec "src/**/*.vue"
+./target/release/vize "src/**/*.vue"
 
 # Compile with output directory
-./target/release/vuec "src/**/*.vue" -o dist
+./target/release/vize "src/**/*.vue" -o dist
 
 # Show statistics only
-./target/release/vuec "src/**/*.vue" -f stats
+./target/release/vize "src/**/*.vue" -f stats
 
 # SSR mode
-./target/release/vuec "src/**/*.vue" --ssr
+./target/release/vize "src/**/*.vue" --ssr
 
 # Control thread count
-./target/release/vuec "src/**/*.vue" -j 4
+./target/release/vize "src/**/*.vue" -j 4
 ```
 
 Options:
@@ -120,14 +134,24 @@ Options:
 
 ```javascript
 // Node.js (Native)
-const { compileSfc } = require('@vue-compiler-rs/native');
+const { compileSfc } = require('@vize/native');
 const { code } = compileSfc(`<template><div>{{ msg }}</div></template>`, { filename: 'App.vue' });
 
 // Browser (WASM)
-import init, { compileSfc } from '@vue-compiler-rs/wasm';
+import init, { compileSfc } from '@vize/wasm';
 await init();
 const { code } = compileSfc(`...`, { filename: 'App.vue' });
 ```
+
+## Roadmap
+
+| Crate | Description | Status |
+|-------|-------------|--------|
+| `vize_compiler_sfc` | SFC Compiler | In Progress |
+| `vize_compiler_vapor` | Vapor Mode Compiler | In Progress |
+| `vize_typechecker` | TypeScript Type Checker | Planned |
+| `vize_linter` | Vue.js Linter | Planned |
+| `vize_formatter` | Vue.js Formatter | Planned |
 
 ## License
 

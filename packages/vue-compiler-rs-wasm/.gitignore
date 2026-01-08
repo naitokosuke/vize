@@ -1,8 +1,0 @@
-# wasm-bindgen generated files
-vue_bindings.js
-vue_bindings.d.ts
-vue_bindings_bg.wasm
-vue_bindings_bg.wasm.d.ts
-
-# package lock
-package-lock.json

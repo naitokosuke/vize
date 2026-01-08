@@ -40,4 +40,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Coverage report
-        run: cargo run -p vue_test_runner --bin coverage --release
+        run: cargo run -p vize_test_runner --bin coverage --release

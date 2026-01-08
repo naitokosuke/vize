@@ -1,12 +1,12 @@
 {
-  "name": "vue-compiler-rs-monorepo",
+  "name": "vize-monorepo",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "dev": "pnpm -C playground dev",
-    "build:plugin": "pnpm -C packages/vite-plugin-vue-compiler-rs build",
-    "install:plugin": "pnpm -C packages/vite-plugin-vue-compiler-rs install"
+    "build:plugin": "pnpm -C npm/vite-plugin-vize build",
+    "install:plugin": "pnpm -C npm/vite-plugin-vize install"
   },
   "devDependencies": {
     "@iarna/toml": "^2.2.5",

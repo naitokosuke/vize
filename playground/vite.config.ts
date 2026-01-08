@@ -3,23 +3,23 @@ import vue from "@vitejs/plugin-vue";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 
-// Toggle between @vitejs/plugin-vue and vite-plugin-vue-compiler-rs
+// Toggle between @vitejs/plugin-vue and vite-plugin-vize
 // In CI (production build), use official Vue compiler for stability
-// In development, try to use vue-compiler-rs for testing
-const USE_VUE_COMPILER_RS = process.env.CI !== "true";
+// In development, try to use Vize for testing
+const USE_VIZE = process.env.CI !== "true";
 
 async function getVuePlugin() {
-  if (USE_VUE_COMPILER_RS) {
+  if (USE_VIZE) {
     try {
-      const { vueCompilerRs } =
-        await import("../packages/vite-plugin-vue-compiler-rs/dist/index.js");
+      const { vize } =
+        await import("../npm/vite-plugin-vize/dist/index.js");
       console.log(
-        "[vite.config] Using vue-compiler-rs for Vue SFC compilation",
+        "[vite.config] Using Vize for Vue SFC compilation",
       );
-      return vueCompilerRs();
+      return vize();
     } catch (e) {
       console.warn(
-        "[vite.config] Failed to load vue-compiler-rs, falling back to @vitejs/plugin-vue:",
+        "[vite.config] Failed to load Vize, falling back to @vitejs/plugin-vue:",
         e,
       );
       return vue();
@@ -33,7 +33,7 @@ export default defineConfig(async () => {
   const vuePlugin = await getVuePlugin();
 
   return {
-    base: process.env.CI ? "/vue-compiler-rs/" : "/",
+    base: process.env.CI ? "/vize/" : "/",
     plugins: [vuePlugin, wasm(), topLevelAwait()],
     server: {
       headers: {
@@ -42,7 +42,7 @@ export default defineConfig(async () => {
       },
     },
     optimizeDeps: {
-      exclude: ["vue-compiler-rs-wasm"],
+      exclude: ["vize-wasm"],
     },
   };
 });

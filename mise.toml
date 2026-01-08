@@ -1,5 +1,6 @@
 [tools]
 node = "24"
+pnpm = "10"
 rust = "latest"
 
 # =============================================================================
@@ -26,34 +27,34 @@ depends = ["build:native", "build:wasm"]
 [tasks."build:native"]
 alias = "bn"
 description = "Build native NAPI bindings"
-run = "pnpm -C packages/vue-compiler-rs-native build"
+run = "pnpm -C npm/vize-native build"
 
 [tasks."build:wasm"]
 alias = "bw"
 description = "Build WASM bindings for vite-plugin (Node.js)"
-run = "wasm-pack build crates/vue_bindings --target nodejs --out-dir ../../packages/vite-plugin-vue-compiler-rs/wasm --features wasm --no-default-features"
+run = "wasm-pack build crates/vize_bindings --target nodejs --out-dir ../../npm/vite-plugin-vize/wasm --features wasm --no-default-features"
 
 [tasks."build:wasm-web"]
 alias = "bww"
 description = "Build WASM bindings for browser (playground)"
-run = "wasm-pack build crates/vue_bindings --target web --out-dir ../../playground/src/wasm --features wasm --no-default-features"
+run = "wasm-pack build crates/vize_bindings --target web --out-dir ../../playground/src/wasm --features wasm --no-default-features"
 
 [tasks."build:vite-plugin"]
 alias = "bv"
-description = "Build vite-plugin-vue-compiler-rs"
+description = "Build vite-plugin-vize"
 depends = ["build:wasm"]
-run = "pnpm -C packages/vite-plugin-vue-compiler-rs build"
+run = "pnpm -C npm/vite-plugin-vize build"
 
 [tasks."build:cli"]
 alias = "bc"
-description = "Build CLI binary (vue-compiler)"
-run = "cargo build --release -p vue_compiler_cli"
+description = "Build CLI binary (vize)"
+run = "cargo build --release -p vize_compiler_cli"
 
 # =============================================================================
-# CLI (vuec - Vue Compiler)
+# CLI (vize - Vue Compiler)
 # =============================================================================
 # High-performance Vue SFC compiler with glob pattern matching
-# Usage: vuec <PATTERNS> [OPTIONS]
+# Usage: vize <PATTERNS> [OPTIONS]
 #
 # OPTIONS:
 #   -o, --output <PATH>         Output directory (stdout if not specified)
@@ -64,28 +65,28 @@ run = "cargo build --release -p vue_compiler_cli"
 #   --continue-on-error         Continue compilation even on errors
 
 [tasks.cli]
-description = "Install vuec (Vue Compiler) CLI to cargo bin (accessible from PATH)"
-run = "cargo install --path crates/vue_compiler_cli --force"
+description = "Install vize CLI to cargo bin (accessible from PATH)"
+run = "cargo install --path crates/vize_compiler_cli --force"
 
 [tasks."cli:help"]
-description = "Show vuec CLI help"
-run = "vuec --help"
+description = "Show vize CLI help"
+run = "vize --help"
 
 [tasks."cli:example"]
 description = "Example: Compile all .vue files recursively with stats summary"
-run = "vuec './**/*.vue' -o . -v"
+run = "vize './**/*.vue' -o . -v"
 
 [tasks."cli:example-json"]
 description = "Example: Compile .vue files to JSON with summary stats"
-run = "vuec './**/*.vue' -o . -f json -v"
+run = "vize './**/*.vue' -o . -f json -v"
 
 [tasks."cli:example-ssr"]
 description = "Example: Compile .vue files in SSR mode as JSON with stats"
-run = "vuec './**/*.vue' -o . -f json --ssr -v"
+run = "vize './**/*.vue' -o . -f json --ssr -v"
 
 [tasks."cli:example-stats"]
 description = "Example: Show only compilation stats (no output files)"
-run = "vuec './**/*.vue' -f stats -v"
+run = "vize './**/*.vue' -f stats -v"
 
 # =============================================================================
 # Test
@@ -99,12 +100,12 @@ run = "cargo test --workspace"
 [tasks."test:vue"]
 alias = "tv"
 description = "Run Vue compatibility tests"
-run = "cargo test -p vue_test_runner"
+run = "cargo test -p vize_test_runner"
 
 [tasks.coverage]
 alias = "cov"
 description = "Show test coverage report"
-run = "cargo run -p vue_test_runner --bin coverage"
+run = "cargo run -p vize_test_runner --bin coverage"
 
 [tasks."expected:generate"]
 alias = "egen"
@@ -123,12 +124,12 @@ run = "node --experimental-strip-types scripts/generate-expected.ts sfc/basic sf
 [tasks.snapshot]
 alias = "snap"
 description = "Run snapshot tests and review changes"
-run = "cargo insta test -p vue_compiler_sfc -- snapshot_tests && cargo insta review"
+run = "cargo insta test -p vize_compiler_sfc -- snapshot_tests && cargo insta review"
 
 [tasks."snapshot:test"]
 alias = "snapt"
 description = "Run snapshot tests only"
-run = "cargo insta test -p vue_compiler_sfc -- snapshot_tests"
+run = "cargo insta test -p vize_compiler_sfc -- snapshot_tests"
 
 [tasks."snapshot:review"]
 alias = "snapr"
@@ -143,12 +144,12 @@ run = "cargo insta accept"
 [tasks."coverage:verbose"]
 alias = "covv"
 description = "Show coverage with failing test names"
-run = "cargo run -p vue_test_runner --bin coverage -- -v"
+run = "cargo run -p vize_test_runner --bin coverage -- -v"
 
 [tasks."coverage:diff"]
 alias = "covd"
 description = "Show coverage with diffs"
-run = "cargo run -p vue_test_runner --bin coverage -- -vv"
+run = "cargo run -p vize_test_runner --bin coverage -- -vv"
 
 # =============================================================================
 # Benchmark
@@ -172,7 +173,7 @@ run = "node bench/generate.mjs 15000"
 [tasks."bench:rust"]
 alias = "br"
 description = "Run Rust benchmarks (criterion)"
-run = "cargo bench -p vue_compiler_sfc"
+run = "cargo bench -p vize_compiler_sfc"
 
 # =============================================================================
 # Development

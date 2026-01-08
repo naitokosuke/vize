@@ -1,32 +1,35 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/vue_allocator",
-    "crates/vue_shared",
-    "crates/vue_compiler_core",
-    "crates/vue_compiler_dom",
-    "crates/vue_compiler_vapor",
-    "crates/vue_compiler_sfc",
-    "crates/vue_bindings",
-    "crates/vue_compiler_cli",
-    "tests/vue_test_runner",
+    "crates/vize_allocator",
+    "crates/vize_shared",
+    "crates/vize_compiler_core",
+    "crates/vize_compiler_dom",
+    "crates/vize_compiler_vapor",
+    "crates/vize_compiler_sfc",
+    "crates/vize_bindings",
+    "crates/vize_compiler_cli",
+    "crates/vize_typechecker",
+    "crates/vize_linter",
+    "crates/vize_formatter",
+    "tests/vize_test_runner",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/ubugeeei/vue-compiler-rs"
+repository = "https://github.com/ubugeeei/vize"
 
 [workspace.dependencies]
 # Internal crates
-vue_allocator = { path = "crates/vue_allocator" }
-vue_shared = { path = "crates/vue_shared" }
-vue_compiler_core = { path = "crates/vue_compiler_core" }
-vue_compiler_dom = { path = "crates/vue_compiler_dom" }
-vue_compiler_vapor = { path = "crates/vue_compiler_vapor" }
-vue_compiler_sfc = { path = "crates/vue_compiler_sfc", default-features = false }
-vue_bindings = { path = "crates/vue_bindings" }
+vize_allocator = { path = "crates/vize_allocator" }
+vize_shared = { path = "crates/vize_shared" }
+vize_compiler_core = { path = "crates/vize_compiler_core" }
+vize_compiler_dom = { path = "crates/vize_compiler_dom" }
+vize_compiler_vapor = { path = "crates/vize_compiler_vapor" }
+vize_compiler_sfc = { path = "crates/vize_compiler_sfc", default-features = false }
+vize_bindings = { path = "crates/vize_bindings" }
 
 # OXC dependencies
 oxc_parser = "0.45"

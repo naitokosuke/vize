@@ -25,7 +25,7 @@ importers:
         specifier: 3.6.0-beta.1
         version: 3.6.0-beta.1(typescript@5.9.3)
 
-  packages/vite-plugin-vue-compiler-rs:
+  npm/vite-plugin-vize:
     dependencies:
       magic-string:
         specifier: ^0.30.0
@@ -41,13 +41,13 @@ importers:
         specifier: ^7.3.1
         version: 7.3.1(@types/node@22.19.3)
 
-  packages/vue-compiler-rs-native:
+  npm/vize-native:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^2.18.0
         version: 2.18.4
 
-  packages/vue-compiler-rs-wasm: {}
+  npm/vize-wasm: {}
 
   playground:
     dependencies:

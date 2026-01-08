@@ -1,0 +1,18 @@
+{
+  "name": "@vize/native",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "vize-bindings",
+    "triples": {}
+  },
+  "scripts": {
+    "build": "napi build --platform --release --cargo-cwd=../../crates/vize_bindings --cargo-name=vize_bindings",
+    "build:debug": "napi build --platform --cargo-cwd=../../crates/vize_bindings --cargo-name=vize_bindings"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  }
+}

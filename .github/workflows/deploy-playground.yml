@@ -40,9 +40,9 @@ jobs:
 
       - name: Build WASM
         run: |
-          cargo build --release -p vue_bindings --no-default-features --features wasm --target wasm32-unknown-unknown
-          wasm-bindgen target/wasm32-unknown-unknown/release/vue_bindings.wasm --out-dir packages/vue-compiler-rs-wasm --target web
-          wasm-bindgen target/wasm32-unknown-unknown/release/vue_bindings.wasm --out-dir playground/src/wasm --target web
+          cargo build --release -p vize_bindings --no-default-features --features wasm --target wasm32-unknown-unknown
+          wasm-bindgen target/wasm32-unknown-unknown/release/vize_bindings.wasm --out-dir npm/vize-wasm --target web
+          wasm-bindgen target/wasm32-unknown-unknown/release/vize_bindings.wasm --out-dir playground/src/wasm --target web
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

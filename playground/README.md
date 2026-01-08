@@ -1,6 +1,6 @@
-# Vue Compiler RS Playground
+# Vize Playground
 
-A modern WASM-powered playground for testing the Vue Compiler RS.
+A modern WASM-powered playground for testing Vize.
 
 ## Features
 
@@ -34,4 +34,4 @@ pnpm build
 - Vite
 - Monaco Editor
 - Prism for syntax highlighting
-- WASM (vue-compiler-rs)
+- WASM (Vize)

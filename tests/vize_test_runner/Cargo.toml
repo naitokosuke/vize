@@ -1,0 +1,18 @@
+[package]
+name = "vize_test_runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "coverage"
+path = "src/coverage.rs"
+
+[dependencies]
+vize_compiler_core.workspace = true
+vize_compiler_vapor.workspace = true
+vize_compiler_sfc.workspace = true
+vize_allocator.workspace = true
+vize_shared.workspace = true
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

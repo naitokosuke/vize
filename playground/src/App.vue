@@ -259,19 +259,27 @@ onMounted(async () => {
     <header class="header">
       <div class="logo">
         <div class="logo-icon">
-          <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M16 4L28 8V16C28 22.6274 22.6274 28 16 28C9.37258 28 4 22.6274 4 16V8L16 4Z" stroke="url(#gradient)" stroke-width="2"/>
-            <path d="M16 10L22 12V16C22 19.3137 19.3137 22 16 22C12.6863 22 10 19.3137 10 16V12L16 10Z" fill="url(#gradient)"/>
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="gradient" x1="4" y1="4" x2="28" y2="28">
-                <stop stop-color="#42d392"/>
-                <stop offset="1" stop-color="#647eff"/>
+              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="20%">
+                <stop offset="0%" stop-color="#E6E9F0"/>
+                <stop offset="50%" stop-color="#7B8494"/>
+                <stop offset="100%" stop-color="#A34828"/>
+              </linearGradient>
+              <linearGradient id="gradient-dark" x1="0%" y1="0%" x2="100%" y2="30%">
+                <stop offset="0%" stop-color="#B8BDC9"/>
+                <stop offset="60%" stop-color="#525A6B"/>
+                <stop offset="100%" stop-color="#7D341B"/>
               </linearGradient>
             </defs>
+            <g transform="translate(15, 10) skewX(-15)">
+              <path d="M 65 0 L 40 60 L 70 20 L 65 0 Z" fill="url(#gradient-dark)" stroke="#3E4654" stroke-width="0.5"/>
+              <path d="M 20 0 L 40 60 L 53 13 L 20 0 Z" fill="url(#gradient)" stroke-width="0.5" stroke-opacity="0.6"/>
+            </g>
           </svg>
         </div>
         <div class="logo-text">
-          <h1>Vue Compiler RS</h1>
+          <h1>Vize</h1>
           <span class="version">
             Playground
             <span :class="['wasm-status', wasmStatus]">
@@ -496,7 +504,7 @@ onMounted(async () => {
     </main>
 
     <footer class="footer">
-      <a href="https://github.com/ubugeeei/vue-compiler-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/ubugeeei/vize" target="_blank" rel="noopener noreferrer">GitHub</a>
       <span class="divider">|</span>
       <span>Built with Rust + WASM</span>
     </footer>

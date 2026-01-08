@@ -2240,19 +2240,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vlq"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65dd7eed29412da847b0f78bcec0ac98588165988a8cfe41d4ea1d429f8ccfff"
-
-[[package]]
-name = "vsimd"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
-
-[[package]]
-name = "vue_allocator"
+name = "vize_allocator"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
@@ -2261,7 +2249,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vue_bindings"
+name = "vize_bindings"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
@@ -2274,17 +2262,17 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "vue_allocator",
- "vue_compiler_core",
- "vue_compiler_dom",
- "vue_compiler_sfc",
- "vue_compiler_vapor",
- "vue_shared",
+ "vize_allocator",
+ "vize_compiler_core",
+ "vize_compiler_dom",
+ "vize_compiler_sfc",
+ "vize_compiler_vapor",
+ "vize_shared",
  "wasm-bindgen",
 ]
 
 [[package]]
-name = "vue_compiler_cli"
+name = "vize_compiler_cli"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -2299,11 +2287,11 @@ dependencies = [
  "regex-lite",
  "serde",
  "serde_json",
- "vue_compiler_sfc",
+ "vize_compiler_sfc",
 ]
 
 [[package]]
-name = "vue_compiler_core"
+name = "vize_compiler_core"
 version = "0.1.0"
 dependencies = [
  "bumpalo",
@@ -2324,12 +2312,12 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "vue_allocator",
- "vue_shared",
+ "vize_allocator",
+ "vize_shared",
 ]
 
 [[package]]
-name = "vue_compiler_dom"
+name = "vize_compiler_dom"
 version = "0.1.0"
 dependencies = [
  "insta",
@@ -2337,13 +2325,13 @@ dependencies = [
  "rustc-hash",
  "serde",
  "thiserror 2.0.17",
- "vue_allocator",
- "vue_compiler_core",
- "vue_shared",
+ "vize_allocator",
+ "vize_compiler_core",
+ "vize_shared",
 ]
 
 [[package]]
-name = "vue_compiler_sfc"
+name = "vize_compiler_sfc"
 version = "0.1.0"
 dependencies = [
  "criterion",
@@ -2363,28 +2351,36 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "toml",
- "vue_allocator",
- "vue_compiler_core",
- "vue_compiler_dom",
- "vue_compiler_vapor",
- "vue_shared",
+ "vize_allocator",
+ "vize_compiler_core",
+ "vize_compiler_dom",
+ "vize_compiler_vapor",
+ "vize_shared",
 ]
 
 [[package]]
-name = "vue_compiler_vapor"
+name = "vize_compiler_vapor"
 version = "0.1.0"
 dependencies = [
  "insta",
  "rustc-hash",
  "serde",
  "thiserror 2.0.17",
- "vue_allocator",
- "vue_compiler_core",
- "vue_shared",
+ "vize_allocator",
+ "vize_compiler_core",
+ "vize_shared",
 ]
 
 [[package]]
-name = "vue_shared"
+name = "vize_formatter"
+version = "0.1.0"
+
+[[package]]
+name = "vize_linter"
+version = "0.1.0"
+
+[[package]]
+name = "vize_shared"
 version = "0.1.0"
 dependencies = [
  "bitflags",
@@ -2393,21 +2389,37 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "vue_allocator",
+ "vize_allocator",
 ]
 
 [[package]]
-name = "vue_test_runner"
+name = "vize_test_runner"
 version = "0.1.0"
 dependencies = [
  "serde",
  "toml",
- "vue_allocator",
- "vue_compiler_core",
- "vue_compiler_sfc",
- "vue_compiler_vapor",
- "vue_shared",
+ "vize_allocator",
+ "vize_compiler_core",
+ "vize_compiler_sfc",
+ "vize_compiler_vapor",
+ "vize_shared",
 ]
+
+[[package]]
+name = "vize_typechecker"
+version = "0.1.0"
+
+[[package]]
+name = "vlq"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65dd7eed29412da847b0f78bcec0ac98588165988a8cfe41d4ea1d429f8ccfff"
+
+[[package]]
+name = "vsimd"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "walkdir"

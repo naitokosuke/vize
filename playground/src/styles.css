@@ -1,16 +1,18 @@
 /* Variables */
 :root {
-  --bg-primary: #0f0f23;
-  --bg-secondary: #1a1a2e;
-  --bg-tertiary: #16213e;
-  --bg-panel: rgba(26, 26, 46, 0.8);
-  --border-color: rgba(100, 126, 255, 0.2);
-  --text-primary: #e4e4e7;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --accent-green: #42d392;
-  --accent-blue: #647eff;
-  --accent-gradient: linear-gradient(135deg, #42d392 0%, #647eff 100%);
+  --bg-primary: #0f1014;
+  --bg-secondary: #1a1b21;
+  --bg-tertiary: #252830;
+  --bg-panel: rgba(26, 27, 33, 0.9);
+  --border-color: rgba(160, 170, 185, 0.25);
+  --text-primary: #f0f2f5;
+  --text-secondary: #d0d4dc;
+  --text-muted: #9ca3b0;
+  --accent-rust: #e07048;
+  --accent-rust-light: #f08060;
+  --accent-metal: #d0d4dc;
+  --accent-metal-dark: #9ca3b0;
+  --accent-gradient: linear-gradient(135deg, #f0f2f5 0%, #9ca3b0 50%, #e07048 100%);
   --font-mono: 'JetBrains Mono', monospace;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --radius: 8px;
@@ -81,13 +83,13 @@
 }
 
 .wasm-status.ready {
-  background: rgba(66, 211, 146, 0.2);
-  color: var(--accent-green);
+  background: rgba(163, 72, 40, 0.2);
+  color: var(--accent-rust);
 }
 
 .wasm-status.mock {
-  background: rgba(100, 126, 255, 0.2);
-  color: var(--accent-blue);
+  background: rgba(184, 189, 201, 0.2);
+  color: var(--accent-metal);
 }
 
 .options {
@@ -117,7 +119,7 @@
 }
 
 .option select:hover {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-metal);
 }
 
 .option.checkbox {
@@ -128,7 +130,7 @@
 .option.checkbox input {
   width: 16px;
   height: 16px;
-  accent-color: var(--accent-green);
+  accent-color: var(--accent-rust);
   cursor: pointer;
 }
 
@@ -171,8 +173,8 @@
 .compile-time {
   font-size: 12px;
   font-weight: 500;
-  color: var(--accent-green);
-  background: rgba(66, 211, 146, 0.1);
+  color: var(--accent-rust);
+  background: rgba(163, 72, 40, 0.15);
   padding: 2px 8px;
   border-radius: 4px;
   font-family: var(--font-mono);
@@ -222,8 +224,8 @@
 }
 
 .tab.active {
-  color: var(--accent-green);
-  background: rgba(66, 211, 146, 0.1);
+  color: var(--accent-rust);
+  background: rgba(163, 72, 40, 0.15);
 }
 
 /* Editor */
@@ -252,7 +254,7 @@
   width: 20px;
   height: 20px;
   border: 2px solid var(--border-color);
-  border-top-color: var(--accent-green);
+  border-top-color: var(--accent-rust);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -335,13 +337,13 @@
 }
 
 .helper-item:hover {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-metal);
 }
 
 .helper-name {
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--accent-green);
+  color: var(--accent-rust);
 }
 
 /* Footer */
@@ -358,13 +360,13 @@
 }
 
 .footer a {
-  color: var(--accent-blue);
+  color: var(--accent-metal);
   text-decoration: none;
   transition: color 0.2s;
 }
 
 .footer a:hover {
-  color: var(--accent-green);
+  color: var(--accent-rust);
 }
 
 .divider {
@@ -487,8 +489,8 @@
   font-weight: 500;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(100, 126, 255, 0.15);
-  color: var(--accent-blue);
+  background: rgba(184, 189, 201, 0.15);
+  color: var(--accent-metal);
 }
 
 /* CSS Output Tab */
@@ -568,7 +570,7 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 126, 255, 0.4);
+  background: rgba(163, 72, 40, 0.5);
 }
 
 /* Monaco Editor Override */

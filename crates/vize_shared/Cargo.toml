@@ -1,0 +1,15 @@
+[package]
+name = "vize_shared"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vize_allocator = { workspace = true }
+
+bitflags = { workspace = true }
+phf = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
