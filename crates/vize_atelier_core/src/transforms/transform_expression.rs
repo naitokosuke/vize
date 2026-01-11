@@ -98,6 +98,11 @@ pub fn process_expression<'a>(
                 return clone_expression(exp, allocator);
             }
 
+            // Skip if already processed for ref transformation
+            if simple.is_ref_transformed {
+                return clone_expression(exp, allocator);
+            }
+
             let content = &simple.content;
 
             // Empty content
@@ -130,6 +135,7 @@ pub fn process_expression<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: simple.is_handler_key,
+                    is_ref_transformed: true,
                 },
                 allocator,
             ))
@@ -738,6 +744,7 @@ fn clone_expression<'a>(exp: &ExpressionNode<'a>, allocator: &'a Bump) -> Expres
                 hoisted: None,
                 identifiers: None,
                 is_handler_key: simple.is_handler_key,
+                is_ref_transformed: simple.is_ref_transformed,
             },
             allocator,
         )),
@@ -769,6 +776,11 @@ pub fn process_inline_handler<'a>(
                 return clone_expression(exp, allocator);
             }
 
+            // Skip if already processed for ref transformation
+            if simple.is_ref_transformed {
+                return clone_expression(exp, allocator);
+            }
+
             let content = &simple.content;
 
             // Check if it's an inline function expression
@@ -789,6 +801,7 @@ pub fn process_inline_handler<'a>(
                             hoisted: None,
                             identifiers: None,
                             is_handler_key: true,
+                            is_ref_transformed: true,
                         },
                         allocator,
                     ));
@@ -805,6 +818,7 @@ pub fn process_inline_handler<'a>(
                             hoisted: None,
                             identifiers: None,
                             is_handler_key: true,
+                            is_ref_transformed: true,
                         },
                         allocator,
                     ));
@@ -832,6 +846,7 @@ pub fn process_inline_handler<'a>(
                         hoisted: None,
                         identifiers: None,
                         is_handler_key: true,
+                        is_ref_transformed: true,
                     },
                     allocator,
                 ));
@@ -862,6 +877,7 @@ pub fn process_inline_handler<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: true,
+                    is_ref_transformed: true,
                 },
                 allocator,
             ))

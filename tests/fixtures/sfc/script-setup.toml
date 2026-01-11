@@ -1033,3 +1033,63 @@ const isChangedProgressLap = computed(
   </button>
 </template>
 """
+
+# =============================================================================
+# Regression tests for ref .value transformation
+# =============================================================================
+
+[[cases]]
+name = "nested v-if with ref should not duplicate .value"
+input = """
+<script setup lang="ts">
+import { ref } from 'vue';
+const mode = ref<'a' | 'b'>('a');
+</script>
+
+<template>
+  <div>
+    <template v-if="true">
+      <div v-if="true">
+        <button :class="{ active: mode === 'a' }" @click="mode = 'b'">Test</button>
+      </div>
+      <div v-else-if="false">
+        <span>Alt</span>
+      </div>
+    </template>
+  </div>
+</template>
+"""
+
+[[cases]]
+name = "v-else-if chain with ref bindings"
+input = """
+<script setup lang="ts">
+import { ref, computed } from 'vue';
+const output = ref<{ code: string } | null>({ code: 'test' });
+const activeTab = ref<'code' | 'ast' | 'helpers' | 'sfc'>('code');
+const isTypeScript = computed(() => true);
+const codeViewMode = ref<'ts' | 'js'>('ts');
+</script>
+
+<template>
+  <div>
+    <template v-if="output">
+      <div v-if="activeTab === 'code'" class="code-output">
+        <div v-if="isTypeScript" class="code-mode-toggle">
+          <button :class="['btn', { active: codeViewMode === 'ts' }]" @click="codeViewMode = 'ts'">TS</button>
+          <button :class="['btn', { active: codeViewMode === 'js' }]" @click="codeViewMode = 'js'">JS</button>
+        </div>
+      </div>
+      <div v-else-if="activeTab === 'ast'" class="ast-output">
+        <h4>AST</h4>
+      </div>
+      <div v-else-if="activeTab === 'helpers'" class="helpers-output">
+        <h4>Helpers</h4>
+      </div>
+      <div v-else-if="activeTab === 'sfc'" class="sfc-output">
+        <h4>SFC</h4>
+      </div>
+    </template>
+  </div>
+</template>
+"""

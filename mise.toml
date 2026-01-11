@@ -181,9 +181,15 @@ run = "cargo bench -p vize_atelier_sfc"
 
 [tasks.dev]
 alias = "d"
-description = "Start playground dev server (using official Vue compiler)"
+description = "Start playground dev server (using Vize compiler)"
 depends = ["build:vite-plugin"]
-run = "CI=true pnpm -C playground dev"
+run = "pnpm -C playground dev"
+
+[tasks.example]
+alias = "e"
+description = "Start vite-plugin-vize example dev server"
+depends = ["build:vite-plugin"]
+run = "pnpm -C npm/vite-plugin-vize/example dev"
 
 [tasks.check]
 alias = "c"

@@ -305,6 +305,7 @@ fn clone_expression<'a>(allocator: &'a Bump, exp: &ExpressionNode<'a>) -> Expres
                 hoisted: None,
                 identifiers: None,
                 is_handler_key: s.is_handler_key,
+                is_ref_transformed: s.is_ref_transformed,
             },
             allocator,
         )),
@@ -320,6 +321,7 @@ fn clone_expression<'a>(allocator: &'a Bump, exp: &ExpressionNode<'a>) -> Expres
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: c.is_handler_key,
+                    is_ref_transformed: false,
                 },
                 allocator,
             ))
@@ -672,6 +674,7 @@ fn transform_v_if<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: false,
+                    is_ref_transformed: false,
                 },
                 allocator,
             ));
@@ -778,6 +781,7 @@ fn transform_v_if<'a>(
                         hoisted: None,
                         identifiers: None,
                         is_handler_key: false,
+                        is_ref_transformed: false,
                     },
                     allocator,
                 ));
@@ -945,6 +949,7 @@ fn parse_v_for_expression<'a>(
                 hoisted: None,
                 identifiers: None,
                 is_handler_key: false,
+                is_ref_transformed: false,
             },
             allocator,
         ));
@@ -965,6 +970,7 @@ fn parse_v_for_expression<'a>(
             hoisted: None,
             identifiers: None,
             is_handler_key: false,
+            is_ref_transformed: false,
         },
         allocator,
     ));
@@ -985,6 +991,7 @@ fn parse_v_for_expression<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: false,
+                    is_ref_transformed: false,
                 },
                 allocator,
             )))
@@ -1003,6 +1010,7 @@ fn parse_v_for_expression<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: false,
+                    is_ref_transformed: false,
                 },
                 allocator,
             )))
@@ -1021,6 +1029,7 @@ fn parse_v_for_expression<'a>(
                     hoisted: None,
                     identifiers: None,
                     is_handler_key: false,
+                    is_ref_transformed: false,
                 },
                 allocator,
             )))
@@ -1041,6 +1050,7 @@ fn parse_v_for_expression<'a>(
                 hoisted: None,
                 identifiers: None,
                 is_handler_key: false,
+                is_ref_transformed: false,
             },
             allocator,
         )));

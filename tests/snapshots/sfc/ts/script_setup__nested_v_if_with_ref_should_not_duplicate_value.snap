@@ -1,0 +1,23 @@
+---
+source: crates/vize_atelier_sfc/src/snapshot_tests.rs
+expression: ts_output
+---
+import { defineComponent } from 'vue'
+import { Fragment as _Fragment, openBlock as _openBlock, createElementBlock as _createElementBlock, createElementVNode as _createElementVNode, createCommentVNode as _createCommentVNode, normalizeClass as _normalizeClass } from "vue"
+
+import { ref } from 'vue';
+
+const _hoisted_1 = /*#__PURE__*/ _createElementVNode("span", null, "Alt")
+
+export default defineComponent({
+  name: 'test',
+  setup(__props) {
+
+const mode = ref<'a' | 'b'>('a');
+
+return (_ctx, _cache) => {
+  return (_openBlock(), _createElementBlock("div", null, [ (true) ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [ (true) ? (_openBlock(), _createElementBlock("div", { key: 0 }, [ _createElementVNode("button", { class: _normalizeClass({ active: mode.value === 'a' }), onClick: $event => (mode.value = 'b') }, "Test", 10 /* CLASS, PROPS */) ])) : (false) ? (_openBlock(), _createElementBlock("div", { key: 1 }, [ _hoisted_1 ])) : _createCommentVNode("v-if", true) ], 64 /* STABLE_FRAGMENT */)) : _createCommentVNode("v-if", true) ]))
+}
+}
+
+})

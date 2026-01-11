@@ -1,6 +1,7 @@
 {
   "name": "vite-plugin-vize",
   "version": "0.1.0",
+  "description": "High-performance native Vite plugin for Vue SFC compilation powered by Vize",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,8 +15,22 @@
     "build": "tsc",
     "dev": "tsc --watch"
   },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "vite",
+    "vue",
+    "plugin",
+    "sfc",
+    "compiler",
+    "native",
+    "fast"
+  ],
+  "license": "MIT",
   "dependencies": {
-    "magic-string": "^0.30.0"
+    "@vize/native": "workspace:*",
+    "tinyglobby": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

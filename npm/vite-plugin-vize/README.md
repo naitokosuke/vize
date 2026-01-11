@@ -1,0 +1,214 @@
+# vite-plugin-vize
+
+High-performance native Vite plugin for Vue SFC compilation powered by [Vize](https://github.com/ubugeeei/vize).
+
+## Features
+
+- **Native Performance**: Uses Rust-based compiler via Node.js native bindings (NAPI)
+- **Pre-compilation**: All `.vue` files are compiled at server startup for instant module resolution
+- **Virtual Modules**: Compiled code is served from memory as virtual modules
+- **HMR Support**: Hot Module Replacement with automatic re-compilation on file changes
+- **Vapor Mode**: Optional support for Vue Vapor mode compilation
+
+## Installation
+
+```bash
+# npm
+npm install vite-plugin-vize @vize/native
+
+# pnpm
+pnpm add vite-plugin-vize @vize/native
+
+# yarn
+yarn add vite-plugin-vize @vize/native
+```
+
+## Usage
+
+### Vite
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'
+import { vizeNative } from 'vite-plugin-vize'
+
+export default defineConfig({
+  plugins: [
+    vizeNative({
+      // options
+    })
+  ]
+})
+```
+
+### Nuxt
+
+For Nuxt 3, add the plugin to your `nuxt.config.ts`:
+
+```ts
+// nuxt.config.ts
+import { vizeNative } from 'vite-plugin-vize'
+
+export default defineNuxtConfig({
+  vite: {
+    plugins: [
+      vizeNative({
+        // Exclude Nuxt's internal .vue files if needed
+        exclude: [/node_modules/, /#/, /\.nuxt/]
+      })
+    ]
+  },
+
+  // Disable the default Vue plugin
+  vue: {
+    propsDestructure: false
+  }
+})
+```
+
+**Note**: When using with Nuxt, you may need to disable Nuxt's built-in Vue plugin to avoid conflicts:
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  hooks: {
+    'vite:extendConfig': (config) => {
+      // Remove @vitejs/plugin-vue from plugins
+      config.plugins = config.plugins?.filter(
+        (p) => p && (Array.isArray(p) ? p[0] : p).name !== 'vite:vue'
+      )
+    }
+  },
+  vite: {
+    plugins: [
+      vizeNative()
+    ]
+  }
+})
+```
+
+## Options
+
+```ts
+interface VizeNativeOptions {
+  /**
+   * Files to include in compilation
+   * @default /\.vue$/
+   */
+  include?: string | RegExp | (string | RegExp)[]
+
+  /**
+   * Files to exclude from compilation
+   * @default /node_modules/
+   */
+  exclude?: string | RegExp | (string | RegExp)[]
+
+  /**
+   * Force production mode
+   * @default auto-detected from Vite config
+   */
+  isProduction?: boolean
+
+  /**
+   * Enable SSR mode
+   * @default false
+   */
+  ssr?: boolean
+
+  /**
+   * Enable source map generation
+   * @default true in development, false in production
+   */
+  sourceMap?: boolean
+
+  /**
+   * Enable Vapor mode compilation
+   * @default false
+   */
+  vapor?: boolean
+
+  /**
+   * Root directory to scan for .vue files
+   * @default Vite's root
+   */
+  root?: string
+
+  /**
+   * Glob patterns to scan for .vue files during pre-compilation
+   * @default ['**\/*.vue']
+   */
+  scanPatterns?: string[]
+
+  /**
+   * Glob patterns to ignore during pre-compilation
+   * @default ['node_modules/**', 'dist/**', '.git/**']
+   */
+  ignorePatterns?: string[]
+}
+```
+
+## How It Works
+
+### Pre-compilation at Startup
+
+When the Vite dev server starts (or build begins), the plugin:
+
+1. Scans the project root for all `.vue` files matching the configured patterns
+2. Compiles each file using the native Vize compiler
+3. Stores the compiled JavaScript and CSS in an in-memory cache
+
+This approach leverages Vize's exceptional performance - compiling 15,000 SFC files in under 500ms with multi-threading.
+
+### Virtual Module Resolution
+
+When Vite requests a `.vue` file:
+
+1. The plugin intercepts the module resolution
+2. Returns the pre-compiled code from cache (or compiles on-demand if not cached)
+3. CSS is injected inline with deduplication support
+
+### HMR (Hot Module Replacement)
+
+When a `.vue` file changes:
+
+1. The plugin detects the change via `handleHotUpdate`
+2. Re-compiles only the changed file
+3. Updates the cache
+4. Vite handles the rest of the HMR flow
+
+## Performance
+
+Vize's native compiler is significantly faster than the official Vue compiler:
+
+| Benchmark (15,000 SFCs) | @vue/compiler-sfc | Vize | Speedup |
+|-------------------------|-------------------|------|---------|
+| Single-threaded | 16.21s | 6.65s | **2.4x** |
+| Multi-threaded | 4.13s | 498ms | **8.3x** |
+
+## Comparison with vite-plugin-vize
+
+| Feature | vite-plugin-vize | vite-plugin-vize |
+|---------|------------------|-------------------------|
+| Compiler | WASM | Native (NAPI) |
+| Pre-compilation | No | Yes |
+| Module Loading | Transform | Virtual Module (Load) |
+| Performance | Fast | Fastest |
+| Platform | Any | Node.js only |
+
+Use `vite-plugin-vize` (WASM-based) when you need:
+- Browser compatibility (e.g., StackBlitz, WebContainers)
+- Platform-independent deployment
+
+Use `vite-plugin-vize` when you need:
+- Maximum performance
+- Server-side only (standard Node.js environment)
+
+## Requirements
+
+- Node.js 18+
+- Vite 5.0+ / 6.0+ / 7.0+
+- Vue 3.x
+
+## License
+
+MIT

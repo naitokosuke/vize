@@ -1,0 +1,81 @@
+export interface SfcCompileOptionsNapi {
+  filename?: string;
+  sourceMap?: boolean;
+  ssr?: boolean;
+  scopeId?: string;
+}
+
+export interface SfcCompileResultNapi {
+  code: string;
+  css?: string;
+  errors: string[];
+  warnings: string[];
+}
+
+export type CompileSfcFn = (
+  source: string,
+  options?: SfcCompileOptionsNapi
+) => SfcCompileResultNapi;
+
+export interface VizeOptions {
+  /**
+   * Files to include in compilation
+   * @default /\.vue$/
+   */
+  include?: string | RegExp | (string | RegExp)[];
+
+  /**
+   * Files to exclude from compilation
+   * @default /node_modules/
+   */
+  exclude?: string | RegExp | (string | RegExp)[];
+
+  /**
+   * Force production mode
+   * @default auto-detected from Vite config
+   */
+  isProduction?: boolean;
+
+  /**
+   * Enable SSR mode
+   * @default false
+   */
+  ssr?: boolean;
+
+  /**
+   * Enable source map generation
+   * @default true in development, false in production
+   */
+  sourceMap?: boolean;
+
+  /**
+   * Enable Vapor mode compilation
+   * @default false
+   */
+  vapor?: boolean;
+
+  /**
+   * Root directory to scan for .vue files
+   * @default Vite's root
+   */
+  root?: string;
+
+  /**
+   * Glob patterns to scan for .vue files during pre-compilation
+   * @default ['**\/*.vue']
+   */
+  scanPatterns?: string[];
+
+  /**
+   * Glob patterns to ignore during pre-compilation
+   * @default ['node_modules/**', 'dist/**', '.git/**']
+   */
+  ignorePatterns?: string[];
+}
+
+export interface CompiledModule {
+  code: string;
+  css?: string;
+  scopeId: string;
+  hasScoped: boolean;
+}

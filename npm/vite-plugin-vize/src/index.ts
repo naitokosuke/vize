@@ -1,232 +1,168 @@
-import type { Plugin, ResolvedConfig } from 'vite';
-import { createHash } from 'node:crypto';
+import type { Plugin, ResolvedConfig, ViteDevServer, HmrContext } from 'vite';
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
-import MagicString from 'magic-string';
+import { glob } from 'tinyglobby';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
+import type { VizeOptions, CompiledModule } from './types.js';
+import { compileFile } from './compiler.js';
+import { createFilter, generateOutput } from './utils.js';
 
-/**
- * Rewrite `export default { ... }` to `const __sfc__ = { ... }; export default __sfc__;`
- */
-function rewriteDefault(code: string, as: string): string {
-  const s = new MagicString(code);
-  const exportDefaultMatch = code.match(/\bexport\s+default\s+/);
+export type { VizeOptions, CompiledModule };
 
-  if (!exportDefaultMatch || exportDefaultMatch.index === undefined) {
-    return code;
-  }
-
-  const start = exportDefaultMatch.index;
-  const end = start + exportDefaultMatch[0].length;
-
-  // Replace "export default " with "const __sfc__ = "
-  s.overwrite(start, end, `const ${as} = `);
-
-  // Append "export default __sfc__;" at the end
-  s.append(`\nexport default ${as};`);
-
-  return s.toString();
-}
-
-export interface VizeOptions {
-  include?: string | RegExp | (string | RegExp)[];
-  exclude?: string | RegExp | (string | RegExp)[];
-  isProduction?: boolean;
-  ssr?: boolean;
-  sourceMap?: boolean;
-  vapor?: boolean;
-}
-
-interface SfcCompileResult {
-  descriptor: {
-    filename: string;
-    source: string;
-    template?: { content: string };
-    script?: { content: string; setup: boolean };
-    scriptSetup?: { content: string; setup: boolean };
-    styles: Array<{ content: string; scoped: boolean }>;
-  };
-  script: {
-    code: string;
-    bindings?: Record<string, string>;
-  };
-  css?: string;
-  errors: string[];
-  warnings: string[];
-}
-
-interface WasmModule {
-  compileSfc: (source: string, options: Record<string, unknown>) => SfcCompileResult;
-}
-
-let wasmModule: WasmModule | null = null;
-
-function loadWasm(): WasmModule {
-  if (wasmModule) return wasmModule;
-
-  try {
-    // Load CommonJS WASM module using require (Node.js target)
-    const wasmJsPath = path.resolve(__dirname, '../wasm/vize_bindings.js');
-    const wasmBinaryPath = path.resolve(__dirname, '../wasm/vize_bindings_bg.wasm');
-
-    if (fs.existsSync(wasmJsPath) && fs.existsSync(wasmBinaryPath)) {
-      const wasmModule_ = require(wasmJsPath);
-      const wasmBuffer = fs.readFileSync(wasmBinaryPath);
-
-      // Initialize the WASM module
-      if (wasmModule_.initSync) {
-        wasmModule_.initSync({ module: wasmBuffer });
-      }
-
-      // Extract the exported functions
-      wasmModule = {
-        compileSfc: wasmModule_.compileSfc,
-      } as WasmModule;
-      return wasmModule;
-    }
-    throw new Error('WASM module not found at: ' + wasmJsPath);
-  } catch (e) {
-    throw new Error(`Failed to load vize WASM: ${e}`);
-  }
-}
-
-function generateScopeId(filename: string): string {
-  const hash = createHash('sha256').update(filename).digest('hex');
-  return hash.slice(0, 8);
-}
-
-function createFilter(
-  include?: string | RegExp | (string | RegExp)[],
-  exclude?: string | RegExp | (string | RegExp)[]
-): (id: string) => boolean {
-  const includePatterns = include
-    ? (Array.isArray(include) ? include : [include])
-    : [/\.vue$/];
-  const excludePatterns = exclude
-    ? (Array.isArray(exclude) ? exclude : [exclude])
-    : [/node_modules/];
-
-  return (id: string) => {
-    const matchInclude = includePatterns.some(pattern =>
-      typeof pattern === 'string' ? id.includes(pattern) : pattern.test(id)
-    );
-    const matchExclude = excludePatterns.some(pattern =>
-      typeof pattern === 'string' ? id.includes(pattern) : pattern.test(id)
-    );
-    return matchInclude && !matchExclude;
-  };
-}
+const VIRTUAL_PREFIX = '\0vize:';
 
 export function vize(options: VizeOptions = {}): Plugin {
   const filter = createFilter(options.include, options.exclude);
-  let config: ResolvedConfig;
-  let isProduction = options.isProduction ?? false;
+  const cache = new Map<string, CompiledModule>();
+  // Map from virtual ID to real file path
+  const virtualToReal = new Map<string, string>();
+
+  let isProduction: boolean;
+  let root: string;
+  let server: ViteDevServer | null = null;
+
+  const scanPatterns = options.scanPatterns ?? ['**/*.vue'];
+  const ignorePatterns = options.ignorePatterns ?? [
+    'node_modules/**',
+    'dist/**',
+    '.git/**',
+  ];
+
+  async function compileAll(): Promise<void> {
+    const startTime = performance.now();
+    const files = await glob(scanPatterns, {
+      cwd: root,
+      ignore: ignorePatterns,
+      absolute: true,
+    });
+
+    console.log(`[vize] Pre-compiling ${files.length} Vue files...`);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const file of files) {
+      try {
+        compileFile(file, cache, {
+          sourceMap: options.sourceMap ?? !isProduction,
+          ssr: options.ssr ?? false,
+        });
+        successCount++;
+      } catch (e) {
+        errorCount++;
+        console.error(`[vize] Failed to compile ${file}:`, e);
+      }
+    }
+
+    const elapsed = (performance.now() - startTime).toFixed(2);
+    console.log(
+      `[vize] Pre-compilation complete: ${successCount} succeeded, ${errorCount} failed (${elapsed}ms)`
+    );
+  }
+
+  function resolveVuePath(id: string, importer?: string): string {
+    let resolved: string;
+    if (path.isAbsolute(id)) {
+      resolved = id;
+    } else if (importer) {
+      // Remove virtual prefix from importer if present
+      const realImporter = importer.startsWith(VIRTUAL_PREFIX)
+        ? virtualToReal.get(importer) ?? importer.slice(VIRTUAL_PREFIX.length)
+        : importer;
+      resolved = path.resolve(path.dirname(realImporter), id);
+    } else {
+      resolved = path.resolve(root, id);
+    }
+    return path.normalize(resolved);
+  }
 
   return {
     name: 'vite-plugin-vize',
     enforce: 'pre',
 
     configResolved(resolvedConfig: ResolvedConfig) {
-      config = resolvedConfig;
-      isProduction = options.isProduction ?? config.isProduction;
+      isProduction = options.isProduction ?? resolvedConfig.isProduction;
+      root = options.root ?? resolvedConfig.root;
     },
 
-    async resolveId(id: string) {
-      // Handle virtual modules for styles
-      if (id.includes('.vue?vue&type=style')) {
+    configureServer(devServer: ViteDevServer) {
+      server = devServer;
+    },
+
+    async buildStart() {
+      await compileAll();
+    },
+
+    resolveId(id: string, importer?: string) {
+      if (id.includes('?vue&type=style')) {
         return id;
       }
+
+      if (id.endsWith('.vue')) {
+        const resolved = resolveVuePath(id, importer);
+
+        // Return virtual module ID if cached
+        if (cache.has(resolved)) {
+          const virtualId = VIRTUAL_PREFIX + resolved;
+          virtualToReal.set(virtualId, resolved);
+          return virtualId;
+        }
+      }
+
       return null;
     },
 
     load(id: string) {
-      // Handle virtual style modules
-      if (id.includes('.vue?vue&type=style')) {
+      if (id.includes('?vue&type=style')) {
         const [filename] = id.split('?');
-        const source = fs.readFileSync(filename, 'utf-8');
-        const wasm = loadWasm();
-
-        const result = wasm.compileSfc(source, {
-          filename,
-          mode: 'module',
-          sourceMap: options.sourceMap ?? !isProduction,
-          outputMode: options.vapor ? 'vapor' : 'vdom',
-        });
-
-        return result.css || '';
+        const realPath = filename.startsWith(VIRTUAL_PREFIX)
+          ? virtualToReal.get(filename) ?? filename.slice(VIRTUAL_PREFIX.length)
+          : filename;
+        const compiled = cache.get(realPath);
+        if (compiled?.css) {
+          return compiled.css;
+        }
+        return '';
       }
+
+      // Handle virtual module
+      if (id.startsWith(VIRTUAL_PREFIX)) {
+        const realPath = virtualToReal.get(id) ?? id.slice(VIRTUAL_PREFIX.length);
+        const compiled = cache.get(realPath);
+
+        if (compiled) {
+          return {
+            code: generateOutput(compiled, isProduction, server !== null),
+            map: null,
+          };
+        }
+      }
+
       return null;
     },
 
-    transform(code: string, id: string) {
-      if (!filter(id)) return null;
-      if (!id.endsWith('.vue')) return null;
+    async handleHotUpdate(ctx: HmrContext) {
+      const { file, server, read } = ctx;
 
-      const wasm = loadWasm();
-      const scopeId = generateScopeId(id);
-      const hasScoped = /<style[^>]*\bscoped\b/.test(code);
-
-      try {
-        const result = wasm.compileSfc(code, {
-          filename: id,
-          mode: 'module',
-          scopeId: hasScoped ? `data-v-${scopeId}` : undefined,
-          sourceMap: options.sourceMap ?? !isProduction,
-          ssr: options.ssr ?? false,
-          outputMode: options.vapor ? 'vapor' : 'vdom',
-        });
-
-        if (result.errors.length > 0) {
-          throw new Error(result.errors.join('\n'));
+      if (file.endsWith('.vue') && filter(file)) {
+        try {
+          const source = await read();
+          compileFile(file, cache, {
+            sourceMap: options.sourceMap ?? !isProduction,
+            ssr: options.ssr ?? false,
+          }, source);
+          console.log(`[vize] Re-compiled: ${path.relative(root, file)}`);
+        } catch (e) {
+          console.error(`[vize] Re-compilation failed for ${file}:`, e);
         }
 
-        let output = result.script.code;
-
-        // Inject CSS
-        if (result.css) {
-          const cssCode = JSON.stringify(result.css);
-          output = `
-const __css__ = ${cssCode};
-(function() {
-  if (typeof document !== 'undefined') {
-    const style = document.createElement('style');
-    style.textContent = __css__;
-    document.head.appendChild(style);
-  }
-})();
-${output}`;
+        // Find the virtual module for this file
+        const virtualId = VIRTUAL_PREFIX + file;
+        const modules = server.moduleGraph.getModulesByFile(virtualId)
+          ?? server.moduleGraph.getModulesByFile(file);
+        if (modules) {
+          return [...modules];
         }
-
-        // Add HMR support
-        if (!isProduction && config?.command === 'serve') {
-          // Rewrite "export default { ... }" to "const __sfc__ = { ... }; export default __sfc__;"
-          output = rewriteDefault(output, '__sfc__');
-          output += `
-if (import.meta.hot) {
-  __sfc__.__hmrId = ${JSON.stringify(scopeId)};
-  import.meta.hot.accept(mod => {
-    if (!mod) return;
-    const { default: updated } = mod;
-    if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
-      __VUE_HMR_RUNTIME__.reload(__sfc__.__hmrId, updated);
-    }
-  });
-  if (typeof __VUE_HMR_RUNTIME__ !== 'undefined') {
-    __VUE_HMR_RUNTIME__.createRecord(__sfc__.__hmrId, __sfc__);
-  }
-}`;
-        }
-
-        return {
-          code: output,
-          map: null,
-        };
-      } catch (e) {
-        this.error(`[vize] ${e}`);
       }
     },
   };

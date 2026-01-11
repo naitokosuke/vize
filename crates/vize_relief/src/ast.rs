@@ -571,6 +571,8 @@ pub struct SimpleExpressionNode<'a> {
     pub identifiers: Option<Vec<'a, String>>,
     /// Whether this is a handler key
     pub is_handler_key: bool,
+    /// Whether this expression has been processed for ref .value transformation
+    pub is_ref_transformed: bool,
 }
 
 impl<'a> SimpleExpressionNode<'a> {
@@ -588,6 +590,7 @@ impl<'a> SimpleExpressionNode<'a> {
             hoisted: None,
             identifiers: None,
             is_handler_key: false,
+            is_ref_transformed: false,
         }
     }
 
