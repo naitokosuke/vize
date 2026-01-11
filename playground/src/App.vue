@@ -507,6 +507,8 @@ onMounted(async () => {
 
     <footer class="footer">
       <span>Built with Rust + WASM</span>
+      <span class="separator">|</span>
+      <span>by <a href="https://github.com/ubugeeei" target="_blank" rel="noopener noreferrer">@ubugeeei</a></span>
     </footer>
   </div>
 </template>

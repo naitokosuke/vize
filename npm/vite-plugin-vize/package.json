@@ -1,7 +1,11 @@
 {
-  "name": "vite-plugin-vize",
-  "version": "0.1.0",
+  "name": "@vizejs/vite-plugin",
+  "version": "0.0.1-alpha",
   "description": "High-performance native Vite plugin for Vue SFC compilation powered by Vize",
+  "publishConfig": {
+    "provenance": false,
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

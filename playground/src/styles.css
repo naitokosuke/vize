@@ -381,7 +381,8 @@
   color: var(--accent-rust);
 }
 
-.divider {
+.divider,
+.separator {
   opacity: 0.3;
 }
 

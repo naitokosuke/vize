@@ -110,7 +110,25 @@ Vize crates are named after **art and sculpture terminology**, reflecting how ea
   <img src="./assets/architecture.png" alt="Vize Architecture" width="800" />
 </p>
 
-## Quick Start
+## Installation
+
+### CLI (via Cargo)
+
+```bash
+cargo install vize
+```
+
+### npm
+
+```bash
+# WASM (Browser)
+npm install @vizejs/wasm
+
+# Vite Plugin
+npm install @vizejs/vite-plugin
+```
+
+## Quick Start (Development)
 
 ```bash
 mise install && mise setup
@@ -152,17 +170,28 @@ vize lint --fix                   # Auto-fix lint issues
 vize check --strict               # Strict type checking
 ```
 
-### Node.js / WASM
+### WASM (Browser)
 
 ```javascript
-// Node.js
-const { compileSfc } = require('@vize/native');
-const { code } = compileSfc(`<template><div>{{ msg }}</div></template>`, { filename: 'App.vue' });
+import init, { compileSfc } from '@vizejs/wasm';
 
-// Browser
-import init, { compileSfc } from '@vize/wasm';
 await init();
-const { code } = compileSfc(`...`, { filename: 'App.vue' });
+const { code } = compileSfc(
+  `<template><div>{{ msg }}</div></template>`,
+  { filename: 'App.vue' }
+);
+```
+
+### Vite Plugin
+
+```javascript
+// vite.config.js
+import { defineConfig } from 'vite';
+import vize from '@vizejs/vite-plugin';
+
+export default defineConfig({
+  plugins: [vize()],
+});
 ```
 
 ## Compiler Coverage

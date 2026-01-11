@@ -1,6 +1,10 @@
 {
-  "name": "@vize/wasm",
-  "version": "0.1.0",
+  "name": "@vizejs/wasm",
+  "version": "0.0.1-alpha",
+  "publishConfig": {
+    "provenance": false,
+    "access": "public"
+  },
   "description": "Vue compiler implemented in Rust - WASM bindings",
   "type": "module",
   "main": "index.js",

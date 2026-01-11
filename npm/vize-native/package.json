@@ -1,6 +1,10 @@
 {
-  "name": "@vize/native",
-  "version": "0.1.0",
+  "name": "@vizejs/native",
+  "version": "0.0.1-alpha",
+  "publishConfig": {
+    "provenance": false,
+    "access": "public"
+  },
   "private": true,
   "main": "index.js",
   "types": "index.d.ts",

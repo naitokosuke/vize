@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release-npm-wasm:
+    name: Release @vizejs/wasm to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build WASM
+        run: |
+          cargo build --release -p vize_vitrine --no-default-features --features wasm --target wasm32-unknown-unknown
+          wasm-bindgen target/wasm32-unknown-unknown/release/vize_bindings.wasm --out-dir npm/vize-wasm --target web
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @vizejs/wasm
+        working-directory: npm/vize-wasm
+        run: npm publish --provenance --access public
+
+  release-crates:
+    name: Release crates to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish to crates.io
+        run: |
+          # Publish in dependency order with delays for index updates
+          echo "Publishing vize_carton..."
+          cargo publish -p vize_carton && sleep 30
+
+          echo "Publishing vize_relief..."
+          cargo publish -p vize_relief && sleep 30
+
+          echo "Publishing vize_armature..."
+          cargo publish -p vize_armature && sleep 30
+
+          echo "Publishing vize_atelier_core..."
+          cargo publish -p vize_atelier_core && sleep 30
+
+          echo "Publishing vize_atelier_dom..."
+          cargo publish -p vize_atelier_dom && sleep 30
+
+          echo "Publishing vize_atelier_vapor..."
+          cargo publish -p vize_atelier_vapor && sleep 30
+
+          echo "Publishing vize_atelier_sfc..."
+          cargo publish -p vize_atelier_sfc && sleep 30
+
+          echo "Publishing vize_glyph..."
+          cargo publish -p vize_glyph && sleep 30
+
+          echo "Publishing vize_patina..."
+          cargo publish -p vize_patina && sleep 30
+
+          echo "Publishing vize_canon..."
+          cargo publish -p vize_canon && sleep 30
+
+          echo "Publishing vize_musea..."
+          cargo publish -p vize_musea && sleep 30
+
+          echo "Publishing vize_maestro..."
+          cargo publish -p vize_maestro && sleep 30
+
+          echo "Publishing vize_vitrine..."
+          cargo publish -p vize_vitrine && sleep 30
+
+          echo "Publishing vize (CLI)..."
+          cargo publish -p vize
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [release-npm-wasm, release-crates]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
