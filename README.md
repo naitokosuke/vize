@@ -107,7 +107,7 @@ Vize crates are named after **art and sculpture terminology**, reflecting how ea
 ## Architecture
 
 <p align="center">
-  <img src="./assets/architecture.svg" alt="Vize Architecture" width="700" />
+  <img src="./assets/architecture.png" alt="Vize Architecture" width="800" />
 </p>
 
 ## Quick Start
@@ -164,6 +164,14 @@ import init, { compileSfc } from '@vize/wasm';
 await init();
 const { code } = compileSfc(`...`, { filename: 'App.vue' });
 ```
+
+## Compiler Coverage
+
+| Category | Coverage |
+|----------|----------|
+| SFC (`<script setup>`, macros, CSS) | 93% (13/14) |
+| Template (directives, components) | 100% (22/22) |
+| Vapor mode | 92% (11/12) |
 
 ## Performance
 
