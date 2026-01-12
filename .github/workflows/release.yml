@@ -138,7 +138,7 @@ jobs:
 
       - name: Setup Zig
         if: contains(matrix.settings.build, '--zig')
-        uses: mlugg/setup-zig@v1
+        uses: goto-bus-stop/setup-zig@v2
 
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -270,9 +270,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Get crates.io token via Trusted Publishing
+        id: crates-io-auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
         run: |
           # Publish in dependency order with delays for index updates
           echo "Publishing vize_carton..."
