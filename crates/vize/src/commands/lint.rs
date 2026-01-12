@@ -78,7 +78,7 @@ pub fn run(args: LintArgs) {
             };
 
             let filename = path.to_string_lossy().to_string();
-            let result = linter.lint_template(&source, &filename);
+            let result = linter.lint_sfc(&source, &filename);
 
             error_count.fetch_add(result.error_count, Ordering::Relaxed);
             warning_count.fetch_add(result.warning_count, Ordering::Relaxed);

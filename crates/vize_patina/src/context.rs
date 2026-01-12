@@ -3,9 +3,18 @@
 //! Uses arena allocation for high-performance memory management.
 
 use crate::diagnostic::{LintDiagnostic, Severity};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use vize_carton::{Allocator, CompactString};
 use vize_relief::ast::SourceLocation;
+
+/// Represents a disabled range for a specific rule or all rules
+#[derive(Debug, Clone)]
+pub struct DisabledRange {
+    /// Start line (1-indexed)
+    pub start_line: u32,
+    /// End line (1-indexed, inclusive). None means until end of file.
+    pub end_line: Option<u32>,
+}
 
 /// Context for tracking element state during traversal
 ///
@@ -69,6 +78,12 @@ pub struct LintContext<'a> {
     error_count: usize,
     /// Cached warning count for fast access
     warning_count: usize,
+    /// Disabled ranges for all rules
+    disabled_all: Vec<DisabledRange>,
+    /// Disabled ranges per rule name
+    disabled_rules: FxHashMap<CompactString, Vec<DisabledRange>>,
+    /// Line offsets for fast line number lookup
+    line_offsets: Vec<u32>,
 }
 
 impl<'a> LintContext<'a> {
@@ -90,6 +105,29 @@ impl<'a> LintContext<'a> {
             scope_variables: FxHashSet::default(),
             error_count: 0,
             warning_count: 0,
+            disabled_all: Vec::new(),
+            disabled_rules: FxHashMap::default(),
+            line_offsets: Self::compute_line_offsets(source),
+        }
+    }
+
+    /// Compute line offsets for fast line number lookup
+    fn compute_line_offsets(source: &str) -> Vec<u32> {
+        let mut offsets = vec![0];
+        for (i, c) in source.char_indices() {
+            if c == '\n' {
+                offsets.push((i + 1) as u32);
+            }
+        }
+        offsets
+    }
+
+    /// Get line number (1-indexed) from byte offset
+    #[inline]
+    pub fn offset_to_line(&self, offset: u32) -> u32 {
+        match self.line_offsets.binary_search(&offset) {
+            Ok(line) => (line + 1) as u32,
+            Err(line) => line as u32,
         }
     }
 
@@ -108,11 +146,83 @@ impl<'a> LintContext<'a> {
     /// Report a lint diagnostic
     #[inline]
     pub fn report(&mut self, diagnostic: LintDiagnostic) {
+        // Check if this diagnostic is disabled
+        let line = self.offset_to_line(diagnostic.start);
+        if self.is_disabled_at(diagnostic.rule_name, line) {
+            return;
+        }
+
         match diagnostic.severity {
             Severity::Error => self.error_count += 1,
             Severity::Warning => self.warning_count += 1,
         }
         self.diagnostics.push(diagnostic);
+    }
+
+    /// Check if a rule is disabled at a specific line
+    #[inline]
+    fn is_disabled_at(&self, rule_name: &str, line: u32) -> bool {
+        // Check global disables
+        for range in &self.disabled_all {
+            if line >= range.start_line {
+                if let Some(end) = range.end_line {
+                    if line <= end {
+                        return true;
+                    }
+                } else {
+                    return true;
+                }
+            }
+        }
+
+        // Check rule-specific disables
+        if let Some(ranges) = self.disabled_rules.get(rule_name) {
+            for range in ranges {
+                if line >= range.start_line {
+                    if let Some(end) = range.end_line {
+                        if line <= end {
+                            return true;
+                        }
+                    } else {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Disable all rules starting from a line
+    pub fn disable_all(&mut self, start_line: u32, end_line: Option<u32>) {
+        self.disabled_all.push(DisabledRange {
+            start_line,
+            end_line,
+        });
+    }
+
+    /// Disable specific rules starting from a line
+    pub fn disable_rules(&mut self, rules: &[&str], start_line: u32, end_line: Option<u32>) {
+        for rule in rules {
+            let range = DisabledRange {
+                start_line,
+                end_line,
+            };
+            self.disabled_rules
+                .entry(CompactString::from(*rule))
+                .or_default()
+                .push(range);
+        }
+    }
+
+    /// Disable all rules for the next line only
+    pub fn disable_next_line(&mut self, current_line: u32) {
+        self.disable_all(current_line + 1, Some(current_line + 1));
+    }
+
+    /// Disable specific rules for the next line only
+    pub fn disable_rules_next_line(&mut self, rules: &[&str], current_line: u32) {
+        self.disable_rules(rules, current_line + 1, Some(current_line + 1));
     }
 
     /// Report an error at a location

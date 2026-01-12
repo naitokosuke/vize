@@ -47,8 +47,39 @@ impl<'a, 'ctx, 'rules> LintVisitor<'a, 'ctx, 'rules> {
             }
             TemplateChildNode::If(if_node) => self.visit_if(if_node),
             TemplateChildNode::For(for_node) => self.visit_for(for_node),
-            TemplateChildNode::Text(_) | TemplateChildNode::Comment(_) => {}
+            TemplateChildNode::Comment(comment) => {
+                self.process_disable_comment(&comment.content, comment.loc.start.line);
+            }
+            TemplateChildNode::Text(_) => {}
             _ => {}
+        }
+    }
+
+    /// Process disable comments like `vize-disable` or `vize-disable-next-line`
+    fn process_disable_comment(&mut self, content: &str, line: u32) {
+        let content = content.trim();
+
+        // vize-disable-next-line [rule1, rule2, ...]
+        if let Some(rest) = content.strip_prefix("vize-disable-next-line") {
+            let rest = rest.trim();
+            if rest.is_empty() {
+                self.ctx.disable_next_line(line);
+            } else {
+                let rules: Vec<&str> = rest.split(',').map(|s| s.trim()).collect();
+                self.ctx.disable_rules_next_line(&rules, line);
+            }
+            return;
+        }
+
+        // vize-disable [rule1, rule2, ...]
+        if let Some(rest) = content.strip_prefix("vize-disable") {
+            let rest = rest.trim();
+            if rest.is_empty() {
+                self.ctx.disable_all(line, None);
+            } else {
+                let rules: Vec<&str> = rest.split(',').map(|s| s.trim()).collect();
+                self.ctx.disable_rules(&rules, line, None);
+            }
         }
     }
 
@@ -183,14 +214,33 @@ pub fn parse_v_for_variables(exp: &ExpressionNode) -> Vec<CompactString> {
 
     let alias_str = alias_part.trim();
 
-    // Handle destructuring: (item, index) or (value, key, index)
-    if alias_str.starts_with('(') && alias_str.ends_with(')') {
+    // Handle destructuring: (item, index), { id, name }, or [first, second]
+    let is_tuple = alias_str.starts_with('(') && alias_str.ends_with(')');
+    let is_object = alias_str.starts_with('{') && alias_str.ends_with('}');
+    let is_array = alias_str.starts_with('[') && alias_str.ends_with(']');
+
+    if is_tuple || is_object || is_array {
         let inner = &alias_str[1..alias_str.len() - 1];
         // Pre-allocate with estimated capacity
         let mut vars = Vec::with_capacity(3);
         for s in inner.split(',') {
             let trimmed = s.trim();
-            if !trimmed.is_empty() {
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Handle object shorthand: { id } -> id, { id: itemId } -> itemId
+            if is_object {
+                if let Some(colon_idx) = trimmed.find(':') {
+                    // { id: itemId } -> itemId
+                    let value_part = trimmed[colon_idx + 1..].trim();
+                    if !value_part.is_empty() {
+                        vars.push(CompactString::from(value_part));
+                    }
+                } else {
+                    // { id } -> id (shorthand)
+                    vars.push(CompactString::from(trimmed));
+                }
+            } else {
                 vars.push(CompactString::from(trimmed));
             }
         }
@@ -261,6 +311,50 @@ mod tests {
                 CompactString::from("key"),
                 CompactString::from("index"),
             ]
+        );
+    }
+
+    #[test]
+    fn test_parse_v_for_object_destructuring() {
+        let allocator = Bump::new();
+        let exp = make_simple_exp(&allocator, "{ id } in items");
+        let vars = parse_v_for_variables(&exp);
+        assert_eq!(vars, vec![CompactString::from("id")]);
+    }
+
+    #[test]
+    fn test_parse_v_for_object_destructuring_multiple() {
+        let allocator = Bump::new();
+        let exp = make_simple_exp(&allocator, "{ id, name } in items");
+        let vars = parse_v_for_variables(&exp);
+        assert_eq!(
+            vars,
+            vec![CompactString::from("id"), CompactString::from("name")]
+        );
+    }
+
+    #[test]
+    fn test_parse_v_for_object_destructuring_with_rename() {
+        let allocator = Bump::new();
+        let exp = make_simple_exp(&allocator, "{ id: itemId, name: itemName } in items");
+        let vars = parse_v_for_variables(&exp);
+        assert_eq!(
+            vars,
+            vec![
+                CompactString::from("itemId"),
+                CompactString::from("itemName")
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_v_for_array_destructuring() {
+        let allocator = Bump::new();
+        let exp = make_simple_exp(&allocator, "[first, second] in items");
+        let vars = parse_v_for_variables(&exp);
+        assert_eq!(
+            vars,
+            vec![CompactString::from("first"), CompactString::from("second")]
         );
     }
 }

@@ -420,4 +420,45 @@ mod tests {
         assert!(!text_contains_identifier("myitem", "item"));
         assert!(text_contains_identifier("arr[index]", "index"));
     }
+
+    #[test]
+    fn test_valid_object_destructuring_used_in_key() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div v-for="{ id } in items" :key="id">Content</div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.warning_count, 0);
+    }
+
+    #[test]
+    fn test_valid_object_destructuring_multiple() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div v-for="{ id, name } in items" :key="id">{{ name }}</div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.warning_count, 0);
+    }
+
+    #[test]
+    fn test_invalid_object_destructuring_unused() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div v-for="{ id, name } in items" :key="id">Static</div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.warning_count, 1);
+        assert!(result.diagnostics[0].message.contains("name"));
+    }
+
+    #[test]
+    fn test_valid_object_destructuring_with_rename() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div v-for="{ id: itemId } in items" :key="itemId">Content</div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.warning_count, 0);
+    }
 }

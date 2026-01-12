@@ -4,7 +4,7 @@
 //!
 //! `v-bind` must:
 //! - Have an attribute name (argument) or be used for object binding
-//! - Have an expression
+//! - Have an expression (or use Vue 3.4+ same-name shorthand)
 //!
 //! ## Examples
 //!
@@ -12,7 +12,6 @@
 //! ```vue
 //! <div v-bind></div>
 //! <div :></div>
-//! <div :class></div>
 //! ```
 //!
 //! ### Valid
@@ -20,6 +19,7 @@
 //! <div :class="foo"></div>
 //! <div v-bind:class="foo"></div>
 //! <div v-bind="{ class: foo }"></div>
+//! <div :loading></div>  <!-- Vue 3.4+ same-name shorthand for :loading="loading" -->
 //! ```
 
 use crate::context::LintContext;
@@ -66,20 +66,10 @@ impl Rule for ValidVBind {
             return;
         }
 
-        // Attribute syntax: :class="foo"
+        // Attribute syntax: :class="foo" or Vue 3.4+ same-name shorthand: :loading
         if has_arg {
-            if !has_exp {
-                let arg_name = directive
-                    .arg
-                    .as_ref()
-                    .map(|a| get_expression_content(a))
-                    .unwrap_or_default();
-                ctx.error_with_help(
-                    format!("`v-bind:{}` requires an expression", arg_name),
-                    &directive.loc,
-                    format!("Add a value: :{}=\"value\"", arg_name),
-                );
-            }
+            // Vue 3.4+ same-name shorthand allows :attr without expression
+            // It's equivalent to :attr="attr"
             return;
         }
 
@@ -97,14 +87,6 @@ fn is_empty_expression(exp: &ExpressionNode) -> bool {
     match exp {
         ExpressionNode::Simple(s) => s.content.trim().is_empty(),
         ExpressionNode::Compound(c) => c.children.is_empty(),
-    }
-}
-
-/// Get content from ExpressionNode
-fn get_expression_content(expr: &ExpressionNode) -> String {
-    match expr {
-        ExpressionNode::Simple(s) => s.content.to_string(),
-        ExpressionNode::Compound(_) => "<dynamic>".to_string(),
     }
 }
 
@@ -135,9 +117,24 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_v_bind_no_expression() {
+    fn test_valid_v_bind_same_name_shorthand() {
+        // Vue 3.4+ same-name shorthand: :loading is equivalent to :loading="loading"
         let linter = create_linter();
-        let result = linter.lint_template(r#"<div :class></div>"#, "test.vue");
+        let result = linter.lint_template(r#"<div :loading></div>"#, "test.vue");
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_valid_v_bind_same_name_shorthand_multiple() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div :loading :disabled :checked></div>"#, "test.vue");
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_invalid_v_bind_no_arg_no_exp() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div v-bind></div>"#, "test.vue");
         assert_eq!(result.error_count, 1);
     }
 }

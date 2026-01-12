@@ -13,6 +13,74 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  # Build CLI binaries for all platforms
+  build-cli:
+    name: Build CLI - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            archive: vize-x86_64-apple-darwin.tar.gz
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            archive: vize-aarch64-apple-darwin.tar.gz
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: vize-x86_64-pc-windows-msvc.zip
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            archive: vize-aarch64-pc-windows-msvc.zip
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: vize-x86_64-unknown-linux-gnu.tar.gz
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive: vize-aarch64-unknown-linux-gnu.tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release -p vize --target ${{ matrix.settings.target }}
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.settings.target }}/release
+          tar -czvf ../../../${{ matrix.settings.archive }} vize
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/${{ matrix.settings.target }}/release
+          7z a ../../../${{ matrix.settings.archive }} vize.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.settings.target }}
+          path: ${{ matrix.settings.archive }}
+          if-no-files-found: error
+
   # Build native bindings for all platforms
   build-native:
     name: Build Native - ${{ matrix.settings.target }}
@@ -38,13 +106,13 @@ jobs:
             build: pnpm -C npm/vize-native build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build: pnpm -C npm/vize-native build --target x86_64-unknown-linux-musl
+            build: pnpm -C npm/vize-native build --target x86_64-unknown-linux-musl --zig
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            build: pnpm -C npm/vize-native build --target aarch64-unknown-linux-gnu
+            build: pnpm -C npm/vize-native build --target aarch64-unknown-linux-gnu --zig
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build: pnpm -C npm/vize-native build --target aarch64-unknown-linux-musl
+            build: pnpm -C npm/vize-native build --target aarch64-unknown-linux-musl --zig
     steps:
       - uses: actions/checkout@v4
 
@@ -67,18 +135,6 @@ jobs:
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
-
-      - name: Install cross-compilation tools
-        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Install musl tools
-        if: contains(matrix.settings.target, 'musl')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
 
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -127,6 +183,8 @@ jobs:
         run: |
           cd npm/vize-native
           npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # Build and publish WASM package
   release-npm-wasm:
@@ -160,6 +218,8 @@ jobs:
       - name: Publish @vizejs/wasm
         working-directory: npm/vize-wasm
         run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # Build and publish Vite plugin
   release-npm-vite-plugin:
@@ -188,11 +248,14 @@ jobs:
       - name: Publish @vizejs/vite-plugin
         working-directory: npm/vite-plugin-vize
         run: pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Publish crates to crates.io
+  # Publish crates to crates.io (using Trusted Publishing)
   release-crates:
     name: Release crates to crates.io
     runs-on: ubuntu-latest
+    environment: crates-io
     steps:
       - uses: actions/checkout@v4
 
@@ -203,8 +266,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Publish to crates.io
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           # Publish in dependency order with delays for index updates
           echo "Publishing vize_carton..."
@@ -249,13 +310,23 @@ jobs:
           echo "Publishing vize (CLI)..."
           cargo publish -p vize
 
-  # Create GitHub Release
+  # Create GitHub Release with CLI binaries
   create-github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [release-npm-native, release-npm-wasm, release-npm-vite-plugin, release-crates]
+    needs: [build-cli, release-npm-native, release-npm-wasm, release-npm-vite-plugin, release-crates]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: cli-artifacts
+          merge-multiple: true
+
+      - name: List CLI artifacts
+        run: ls -la cli-artifacts/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -263,3 +334,26 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            cli-artifacts/*.tar.gz
+            cli-artifacts/*.zip
+
+  # Publish CLI npm package
+  release-npm-cli:
+    name: Release vize CLI to npm
+    runs-on: ubuntu-latest
+    needs: create-github-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish vize CLI package
+        working-directory: npm/vize
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

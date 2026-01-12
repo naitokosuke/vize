@@ -11,11 +11,11 @@ path = "src/main.rs"
 
 [dependencies]
 vize_atelier_sfc = { workspace = true, features = ["native"] }
-vize_glyph = { path = "../vize_glyph" }
-vize_patina = { path = "../vize_patina" }
-vize_canon = { path = "../vize_canon" }
-vize_musea = { path = "../vize_musea" }
-vize_maestro = { path = "../vize_maestro" }
+vize_glyph = { workspace = true }
+vize_patina = { workspace = true }
+vize_canon = { workspace = true }
+vize_musea = { workspace = true }
+vize_maestro = { workspace = true }
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }

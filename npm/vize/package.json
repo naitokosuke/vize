@@ -1,0 +1,37 @@
+{
+  "name": "vize",
+  "version": "0.0.1-alpha.13",
+  "description": "Vize - High-performance Vue.js toolchain in Rust",
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
+  },
+  "type": "module",
+  "bin": {
+    "vize": "bin/vize"
+  },
+  "files": [
+    "bin",
+    "scripts"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vizejs/vize"
+  },
+  "keywords": [
+    "vue",
+    "compiler",
+    "rust",
+    "cli",
+    "vize",
+    "formatter",
+    "linter"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

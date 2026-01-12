@@ -119,9 +119,16 @@ Vize crates are named after **art and sculpture terminology**, reflecting how ea
 
 ## Installation
 
-### CLI (via Cargo)
+### CLI
 
 ```bash
+# via npm (recommended)
+npm install -g vize
+
+# via GitHub
+npm install -g github:vizejs/vize
+
+# via Cargo
 cargo install vize
 ```
 

@@ -128,13 +128,23 @@ impl Rule for NoDuplicateAttributes {
                     // Handle v-on directives
                     else if dir.name.as_str() == "on" {
                         if let Some(ref arg) = dir.arg {
-                            let event_key = format!("on:{}", get_expression_content(arg));
+                            let event_name = get_expression_content(arg);
+                            // Include modifiers in the key to allow @keydown.left and @keydown.right
+                            let modifiers: Vec<&str> =
+                                dir.modifiers.iter().map(|m| m.content.as_str()).collect();
+                            let event_key = if modifiers.is_empty() {
+                                format!("on:{}", event_name)
+                            } else {
+                                format!("on:{}.{}", event_name, modifiers.join("."))
+                            };
                             if seen_directives.contains(&event_key) {
+                                let display_name = if modifiers.is_empty() {
+                                    event_name.clone()
+                                } else {
+                                    format!("{}.{}", event_name, modifiers.join("."))
+                                };
                                 ctx.error(
-                                    format!(
-                                        "Duplicate event handler 'v-on:{}'",
-                                        get_expression_content(arg)
-                                    ),
+                                    format!("Duplicate event handler 'v-on:{}'", display_name),
                                     &dir.loc,
                                 );
                             } else {
@@ -208,6 +218,42 @@ mod tests {
     fn test_invalid_duplicate_v_bind() {
         let linter = create_linter();
         let result = linter.lint_template(r#"<div :id="foo" :id="bar"></div>"#, "test.vue");
+        assert_eq!(result.error_count, 1);
+    }
+
+    #[test]
+    fn test_valid_different_event_modifiers() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div @keydown.left="goLeft" @keydown.right="goRight"></div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_valid_different_event_modifiers_multiple() {
+        let linter = create_linter();
+        let result = linter.lint_template(
+            r#"<div @click.stop="a" @click.prevent="b" @click.stop.prevent="c"></div>"#,
+            "test.vue",
+        );
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_invalid_duplicate_event_same_modifiers() {
+        let linter = create_linter();
+        let result =
+            linter.lint_template(r#"<div @click.stop="a" @click.stop="b"></div>"#, "test.vue");
+        assert_eq!(result.error_count, 1);
+        assert!(result.diagnostics[0].message.contains("click.stop"));
+    }
+
+    #[test]
+    fn test_invalid_duplicate_event_no_modifiers() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div @click="a" @click="b"></div>"#, "test.vue");
         assert_eq!(result.error_count, 1);
     }
 }

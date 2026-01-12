@@ -157,11 +157,26 @@ impl Linter {
     /// This extracts the template from the SFC and lints it.
     #[inline]
     pub fn lint_sfc(&self, source: &str, filename: &str) -> LintResult {
-        // Extract template content from SFC
-        let template_content = extract_template_content(source);
+        // Extract template content from SFC with byte offset
+        let template_info = extract_template_content(source);
 
-        if let Some(content) = template_content {
-            self.lint_template(&content, filename)
+        if let Some((content, byte_offset)) = template_info {
+            let mut result = self.lint_template(&content, filename);
+
+            // Adjust byte offsets in diagnostics to match original file positions
+            if byte_offset > 0 {
+                for diag in &mut result.diagnostics {
+                    diag.start += byte_offset;
+                    diag.end += byte_offset;
+                    // Also adjust label positions
+                    for label in &mut diag.labels {
+                        label.start += byte_offset;
+                        label.end += byte_offset;
+                    }
+                }
+            }
+
+            result
         } else {
             // No template found, return empty result
             LintResult {
@@ -175,8 +190,9 @@ impl Linter {
 }
 
 /// Extract template content from SFC source (optimized)
+/// Returns the content and the byte offset where the template content starts
 #[inline]
-fn extract_template_content(source: &str) -> Option<String> {
+fn extract_template_content(source: &str) -> Option<(String, u32)> {
     // Fast path: check if template tag exists
     let start_tag = "<template";
     let start_idx = source.find(start_tag)?;
@@ -193,7 +209,10 @@ fn extract_template_content(source: &str) -> Option<String> {
         return None;
     }
 
-    Some(source[content_start..content_end].to_string())
+    Some((
+        source[content_start..content_end].to_string(),
+        content_start as u32,
+    ))
 }
 
 impl Default for Linter {
@@ -244,5 +263,108 @@ mod tests {
         let (results, summary) = linter.lint_files(&files);
         assert_eq!(results.len(), 2);
         assert_eq!(summary.file_count, 2);
+    }
+
+    #[test]
+    fn test_disable_next_line() {
+        let linter = Linter::new();
+        // Without disable comment - should have error
+        let result = linter.lint_template(
+            r#"<ul><li v-for="item in items">{{ item }}</li></ul>"#,
+            "test.vue",
+        );
+        assert!(result.error_count > 0, "Should have error without key");
+
+        // With disable comment - should suppress error
+        let result = linter.lint_template(
+            r#"<ul><!-- vize-disable-next-line -->
+<li v-for="item in items">{{ item }}</li></ul>"#,
+            "test.vue",
+        );
+        assert_eq!(result.error_count, 0, "Error should be suppressed");
+    }
+
+    #[test]
+    fn test_disable_specific_rule() {
+        let linter = Linter::new();
+        // With specific rule disable
+        let result = linter.lint_template(
+            r#"<ul><!-- vize-disable-next-line vue/require-v-for-key -->
+<li v-for="item in items">{{ item }}</li></ul>"#,
+            "test.vue",
+        );
+        assert_eq!(result.error_count, 0, "Specific rule should be suppressed");
+    }
+
+    #[test]
+    fn test_disable_all() {
+        let linter = Linter::new();
+        // With disable all
+        let result = linter.lint_template(
+            r#"<!-- vize-disable -->
+<ul><li v-for="item in items">{{ item }}</li></ul>"#,
+            "test.vue",
+        );
+        assert_eq!(result.error_count, 0, "All rules should be disabled");
+    }
+
+    #[test]
+    fn test_lint_sfc_extracts_template() {
+        let linter = Linter::new();
+        // SFC with script and template - should only lint template content
+        let sfc = r#"<script setup lang="ts">
+interface Props {
+  schema?: BaseSchema<FormShape, FormShape, any>;
+}
+</script>
+
+<template>
+  <div>Hello World</div>
+</template>
+"#;
+        let result = linter.lint_sfc(sfc, "test.vue");
+        // Should not report errors for TypeScript code in <script>
+        assert_eq!(result.error_count, 0);
+        assert_eq!(result.warning_count, 0);
+    }
+
+    #[test]
+    fn test_lint_sfc_no_template() {
+        let linter = Linter::new();
+        // SFC without template - should return empty result
+        let sfc = r#"<script setup lang="ts">
+const foo = 'bar';
+</script>
+"#;
+        let result = linter.lint_sfc(sfc, "test.vue");
+        assert_eq!(result.error_count, 0);
+        assert_eq!(result.warning_count, 0);
+    }
+
+    #[test]
+    fn test_lint_sfc_byte_offset() {
+        let linter = Linter::new();
+        // SFC where template has an error - byte offset should be adjusted
+        let sfc = r#"<script setup lang="ts">
+const foo = 'bar';
+</script>
+
+<template>
+  <ul><li v-for="item in items">{{ item }}</li></ul>
+</template>
+"#;
+        let result = linter.lint_sfc(sfc, "test.vue");
+        // Should have error for missing :key
+        assert!(result.error_count > 0, "Should detect v-for without key");
+
+        // The byte offset should point to the correct location in the original file
+        if let Some(diag) = result.diagnostics.first() {
+            // The diagnostic should point somewhere in the template section
+            // Template starts after "<script>...</script>\n\n<template>\n"
+            assert!(
+                diag.start > 50,
+                "Byte offset should be adjusted for template position"
+            );
+        }
     }
 }

@@ -381,6 +381,7 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 0;
   height: 100%;
+  min-height: 0;
   grid-column: 1 / -1; /* Span full width of parent grid */
 }
 
@@ -388,6 +389,7 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .input-panel {

@@ -124,12 +124,21 @@ impl RuleRegistry {
         registry.register(Box::new(
             crate::rules::vue::NoReservedComponentNames::default(),
         ));
+        registry.register(Box::new(crate::rules::vue::ValidVSlot));
 
         // Register Vue strongly recommended rules
         registry.register(Box::new(crate::rules::vue::NoTemplateShadow));
-        registry.register(Box::new(crate::rules::vue::NoMultiSpaces::default()));
+        // NoMultiSpaces is not registered by default (opt-in only)
         registry.register(Box::new(crate::rules::vue::VBindStyle::default()));
         registry.register(Box::new(crate::rules::vue::VOnStyle::default()));
+        registry.register(Box::new(crate::rules::vue::HtmlSelfClosing));
+        registry.register(Box::new(
+            crate::rules::vue::MustacheInterpolationSpacing::default(),
+        ));
+        registry.register(Box::new(crate::rules::vue::AttributeHyphenation::default()));
+
+        // Register Vue recommended rules
+        registry.register(Box::new(crate::rules::vue::NoLoneTemplate));
 
         // Register Vapor mode rules
         registry.register(Box::new(crate::rules::vapor::NoSuspense));

@@ -25,12 +25,15 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Compile Vue SFC files (default command)
+    #[command(visible_alias = "atelier")]
     Build(commands::build::BuildArgs),
 
     /// Format Vue SFC files
+    #[command(visible_alias = "glyph")]
     Fmt(commands::fmt::FmtArgs),
 
     /// Lint Vue SFC files
+    #[command(visible_alias = "patina")]
     Lint(commands::lint::LintArgs),
 
     /// Type check Vue SFC files
@@ -40,6 +43,7 @@ enum Commands {
     Musea(commands::musea::MuseaArgs),
 
     /// Start Language Server Protocol server
+    #[command(visible_alias = "maestro")]
     Lsp(commands::lsp::LspArgs),
 }
 
