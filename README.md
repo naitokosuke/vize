@@ -217,6 +217,16 @@ Compiling **15,000 SFC files** (36.9 MB):
 | **Single Thread** | 16.21s | 6.65s | **2.4x** |
 | **Multi Thread** | 4.13s | 498ms | **8.3x** |
 
+## Credits
+
+This project is inspired by and builds upon the work of these amazing projects:
+
+- [Volar.js](https://github.com/volarjs/volar.js) - The embedded language tooling framework
+- [vuejs/language-tools](https://github.com/vuejs/language-tools) - Official Vue.js language tools
+- [eslint-plugin-vue](https://github.com/vuejs/eslint-plugin-vue) - Official ESLint plugin for Vue.js
+- [Storybook](https://github.com/storybookjs/storybook) - UI component explorer
+- [OXC](https://github.com/oxc-project/oxc) - The JavaScript Oxidation Compiler
+
 ## License
 
 MIT
