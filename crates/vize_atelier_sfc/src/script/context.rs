@@ -57,11 +57,11 @@ pub struct ScriptCompileContext {
 
     /// TypeScript interface definitions (name -> body)
     /// Used to resolve type references in defineProps<InterfaceName>()
-    pub interfaces: std::collections::HashMap<String, String>,
+    pub interfaces: rustc_hash::FxHashMap<String, String>,
 
     /// TypeScript type alias definitions (name -> body)
     /// Used to resolve type references in defineProps<TypeName>()
-    pub type_aliases: std::collections::HashMap<String, String>,
+    pub type_aliases: rustc_hash::FxHashMap<String, String>,
 }
 
 impl ScriptCompileContext {
@@ -80,30 +80,32 @@ impl ScriptCompileContext {
             emits_runtime_decl: None,
             emits_type_decl: None,
             emit_decl_id: None,
-            interfaces: std::collections::HashMap::new(),
-            type_aliases: std::collections::HashMap::new(),
+            interfaces: rustc_hash::FxHashMap::default(),
+            type_aliases: rustc_hash::FxHashMap::default(),
         }
     }
 
     /// Analyze script setup and extract bindings
     pub fn analyze(&mut self) {
-        self.parse_with_oxc();
+        // Temporarily take ownership of source to avoid borrow conflicts
+        let source = std::mem::take(&mut self.source);
+        self.parse_with_oxc(&source);
+        self.source = source;
     }
 
     /// Extract all macros from the source
     pub fn extract_all_macros(&mut self) {
-        self.parse_with_oxc();
+        let source = std::mem::take(&mut self.source);
+        self.parse_with_oxc(&source);
+        self.source = source;
     }
 
     /// Parse the source with OXC and extract information
-    fn parse_with_oxc(&mut self) {
+    fn parse_with_oxc(&mut self, source: &str) {
         let allocator = Allocator::default();
         let source_type = SourceType::from_path("script.ts").unwrap_or_default();
 
-        // Clone source for the parser (to avoid borrow conflicts)
-        let source = self.source.clone();
-
-        let ret = Parser::new(&allocator, &source, source_type).parse();
+        let ret = Parser::new(&allocator, source, source_type).parse();
 
         if ret.panicked {
             return;
@@ -135,7 +137,7 @@ impl ScriptCompileContext {
 
         // Second pass: process all statements (macros, bindings, etc.)
         for stmt in program.body.iter() {
-            self.process_statement(stmt, &source);
+            self.process_statement(stmt, source);
         }
 
         // Update flags
@@ -369,24 +371,8 @@ impl ScriptCompileContext {
                     }
                 }
             }
-            // Handle TypeScript interface declarations
-            Statement::TSInterfaceDeclaration(iface) => {
-                let name = iface.id.name.to_string();
-                // Extract the body as source text
-                let body_start = iface.body.span.start as usize;
-                let body_end = iface.body.span.end as usize;
-                let body = source[body_start..body_end].to_string();
-                self.interfaces.insert(name, body);
-            }
-            // Handle TypeScript type alias declarations
-            Statement::TSTypeAliasDeclaration(type_alias) => {
-                let name = type_alias.id.name.to_string();
-                // Extract the type annotation as source text
-                let type_start = type_alias.type_annotation.span().start as usize;
-                let type_end = type_alias.type_annotation.span().end as usize;
-                let type_body = source[type_start..type_end].to_string();
-                self.type_aliases.insert(name, type_body);
-            }
+            // TypeScript declarations are handled in the first pass
+            Statement::TSInterfaceDeclaration(_) | Statement::TSTypeAliasDeclaration(_) => {}
             _ => {}
         }
     }

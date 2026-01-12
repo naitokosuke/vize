@@ -85,9 +85,13 @@ pub fn compile_template_with_options<'a>(
                 "literal-const" => BindingType::LiteralConst,
                 _ => BindingType::SetupMaybeRef, // Default for unknown types
             };
-            bindings.insert(vize_carton::String::from(name.as_str()), binding_type);
+            bindings.insert(name.to_string(), binding_type);
         }
-        BindingMetadata { bindings }
+        BindingMetadata {
+            bindings,
+            props_aliases: rustc_hash::FxHashMap::default(),
+            is_script_setup: true,
+        }
     });
 
     let transform_opts = TransformOptions {
@@ -121,9 +125,13 @@ pub fn compile_template_with_options<'a>(
                 "literal-const" => BindingType::LiteralConst,
                 _ => BindingType::SetupMaybeRef,
             };
-            bindings.insert(vize_carton::String::from(name.as_str()), binding_type);
+            bindings.insert(name.to_string(), binding_type);
         }
-        BindingMetadata { bindings }
+        BindingMetadata {
+            bindings,
+            props_aliases: rustc_hash::FxHashMap::default(),
+            is_script_setup: true,
+        }
     });
 
     let codegen_opts = CodegenOptions {

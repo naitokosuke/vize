@@ -1080,7 +1080,7 @@ fn transform_element<'a>(
                 .options
                 .binding_metadata
                 .as_ref()
-                .map(|m| m.bindings.contains_key(&el.tag))
+                .map(|m| m.bindings.contains_key(el.tag.as_str()))
                 .unwrap_or(false);
             if !is_in_bindings {
                 ctx.helper(RuntimeHelper::ResolveComponent);

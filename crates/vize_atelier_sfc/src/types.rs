@@ -6,6 +6,9 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
+// Re-export from vize_relief to avoid duplication
+pub use vize_atelier_core::options::{BindingMetadata, BindingType};
+
 /// SFC Descriptor - parsed result of a .vue file
 /// Uses Cow<str> for zero-copy parsing with optional ownership
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,55 +292,6 @@ pub struct BlockLocation {
 
     /// End column (1-based)
     pub end_column: usize,
-}
-
-/// Binding metadata from script setup analysis
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BindingMetadata {
-    /// Setup bindings with their types
-    pub bindings: FxHashMap<String, BindingType>,
-
-    /// Props aliases (local name -> prop key)
-    /// For destructured props with aliases like: const { foo: bar } = defineProps()
-    /// This maps "bar" -> "foo"
-    #[serde(default, skip_serializing_if = "FxHashMap::is_empty")]
-    pub props_aliases: FxHashMap<String, String>,
-
-    /// Whether these bindings are from script setup
-    /// If false, components/directives won't be resolved from these bindings
-    #[serde(default = "default_is_script_setup")]
-    pub is_script_setup: bool,
-}
-
-fn default_is_script_setup() -> bool {
-    true
-}
-
-/// Binding type from script setup
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BindingType {
-    /// Data binding from data()
-    Data,
-    /// Props binding
-    Props,
-    /// Props binding with alias
-    PropsAliased,
-    /// Setup let binding
-    SetupLet,
-    /// Setup const binding
-    SetupConst,
-    /// Setup maybe ref binding
-    SetupMaybeRef,
-    /// Setup definite ref binding
-    SetupRef,
-    /// Setup reactive const binding
-    SetupReactiveConst,
-    /// Literal const binding
-    LiteralConst,
-    /// Options API binding
-    Options,
 }
 
 /// Parse options for SFC

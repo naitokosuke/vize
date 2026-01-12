@@ -128,35 +128,51 @@ impl Default for TransformOptions {
 }
 
 /// Binding metadata from script setup
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BindingMetadata {
-    /// Setup bindings
-    pub bindings: rustc_hash::FxHashMap<String, BindingType>,
+    /// Setup bindings with their types
+    pub bindings: rustc_hash::FxHashMap<std::string::String, BindingType>,
+
+    /// Props aliases (local name -> prop key)
+    /// For destructured props with aliases like: const { foo: bar } = defineProps()
+    /// This maps "bar" -> "foo"
+    pub props_aliases: rustc_hash::FxHashMap<std::string::String, std::string::String>,
+
+    /// Whether these bindings are from script setup
+    /// If false, components/directives won't be resolved from these bindings
+    pub is_script_setup: bool,
 }
 
-/// Binding type
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Binding type from script setup.
+///
+/// Optimized with `#[repr(u8)]` for minimal memory footprint.
+/// Each variant fits in a single byte, reducing cache pressure
+/// when stored in large collections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[repr(u8)]
 pub enum BindingType {
-    /// Variable declared with let/const in setup
-    SetupLet,
+    /// Variable declared with let in setup
+    SetupLet = 0,
     /// Const binding that may be a ref
-    SetupMaybeRef,
+    SetupMaybeRef = 1,
     /// Const binding that is definitely a ref
-    SetupRef,
-    /// Reactive binding
-    SetupReactiveConst,
-    /// Const literal
-    SetupConst,
+    SetupRef = 2,
+    /// Reactive const binding (reactive(), shallowReactive())
+    SetupReactiveConst = 3,
+    /// Const binding (functions, classes, non-reactive values)
+    SetupConst = 4,
     /// Binding from props
-    Props,
-    /// Binding from props with default
-    PropsAliased,
-    /// Data binding
-    Data,
-    /// Options binding
-    Options,
-    /// Literal constant
-    LiteralConst,
+    Props = 5,
+    /// Binding from props with alias
+    PropsAliased = 6,
+    /// Data binding from data()
+    Data = 7,
+    /// Options API binding (computed, methods, inject)
+    Options = 8,
+    /// Literal constant (string, number, boolean literals)
+    LiteralConst = 9,
 }
 
 /// Codegen options
