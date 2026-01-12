@@ -12,6 +12,7 @@ use vize_atelier_core::ast::{
 use vize_carton::{
     camelize, capitalize, is_builtin_directive, is_native_tag, is_simple_identifier, FxHashSet,
 };
+use vize_croquis::builtins::is_builtin_component;
 
 /// Result of template analysis
 #[derive(Debug, Clone, Default)]
@@ -320,25 +321,6 @@ fn extract_identifiers_from_compound(
             _ => {}
         }
     }
-}
-
-/// Check if a tag is a built-in component.
-fn is_builtin_component(tag: &str) -> bool {
-    matches!(
-        tag,
-        "Teleport"
-            | "teleport"
-            | "Suspense"
-            | "suspense"
-            | "KeepAlive"
-            | "keep-alive"
-            | "Transition"
-            | "transition"
-            | "TransitionGroup"
-            | "transition-group"
-            | "slot"
-            | "component"
-    )
 }
 
 #[cfg(test)]

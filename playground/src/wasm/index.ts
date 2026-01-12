@@ -631,7 +631,8 @@ function createMockModule(): WasmModule {
   };
 
   // Mock analyze function - defined inline to avoid hoisting issues
-  const inlineMockAnalyzeSfc = (source: string, options: AnalysisOptions): AnalysisResult => {
+  const inlineMockAnalyzeSfc = (source: string, _options: AnalysisOptions): AnalysisResult => {
+    // Parse the SFC to extract information
     const hasScriptSetup = source.includes('<script setup');
     const hasDefineProps = source.includes('defineProps');
     const hasDefineEmits = source.includes('defineEmits');
@@ -639,6 +640,8 @@ function createMockModule(): WasmModule {
 
     const bindings: BindingDisplay[] = [];
     const macros: MacroDisplay[] = [];
+    const props: PropDisplay[] = [];
+    const emits: EmitDisplay[] = [];
 
     // Extract ref bindings
     const refMatches = source.matchAll(/const\s+(\w+)\s*=\s*ref\(/g);
@@ -665,41 +668,383 @@ function createMockModule(): WasmModule {
       });
     }
 
+    // Extract computed bindings
+    const computedMatches = source.matchAll(/const\s+(\w+)\s*=\s*computed\(/g);
+    for (const match of computedMatches) {
+      bindings.push({
+        name: match[1],
+        kind: 'SetupComputed',
+        source: 'computed' as BindingSource,
+        metadata: {
+          isExported: false,
+          isImported: false,
+          isComponent: false,
+          isDirective: false,
+          needsValue: true,
+          usedInTemplate: true,
+          usedInScript: true,
+          scopeDepth: 0,
+        },
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+        isUsed: true,
+        isMutated: false,
+        referenceCount: 1,
+      });
+    }
+
+    // Extract function bindings
+    const functionMatches = source.matchAll(/function\s+(\w+)\s*\(/g);
+    for (const match of functionMatches) {
+      bindings.push({
+        name: match[1],
+        kind: 'SetupConst',
+        source: 'function' as BindingSource,
+        metadata: {
+          isExported: false,
+          isImported: false,
+          isComponent: false,
+          isDirective: false,
+          needsValue: false,
+          usedInTemplate: true,
+          usedInScript: true,
+          scopeDepth: 0,
+        },
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+        isUsed: true,
+        isMutated: false,
+        referenceCount: 1,
+      });
+    }
+
+    // Extract defineProps
     if (hasDefineProps) {
-      const propsMatch = source.match(/defineProps[^)]+\)/);
+      const propsMatch = source.match(/defineProps<\{([^}]+)\}>/);
       if (propsMatch) {
         macros.push({
           name: 'defineProps',
           start: propsMatch.index || 0,
           end: (propsMatch.index || 0) + propsMatch[0].length,
+          type_args: propsMatch[1],
         });
+        // Extract prop names from type
+        const propNameMatches = propsMatch[1].matchAll(/(\w+)(\?)?:/g);
+        for (const propMatch of propNameMatches) {
+          props.push({
+            name: propMatch[1],
+            required: !propMatch[2],
+            has_default: false,
+          });
+        }
       }
     }
 
+    // Extract defineEmits
     if (hasDefineEmits) {
-      const emitsMatch = source.match(/defineEmits[^)]+\)/);
+      const emitsMatch = source.match(/defineEmits<\{([^}]+)\}>/);
       if (emitsMatch) {
         macros.push({
           name: 'defineEmits',
           start: emitsMatch.index || 0,
           end: (emitsMatch.index || 0) + emitsMatch[0].length,
+          type_args: emitsMatch[1],
         });
+        // Extract emit names from type
+        const emitNameMatches = emitsMatch[1].matchAll(/(\w+):/g);
+        for (const emitMatch of emitNameMatches) {
+          emits.push({
+            name: emitMatch[1],
+          });
+        }
       }
     }
 
-    return {
-      summary: {
-        is_setup: hasScriptSetup,
-        bindings,
-        scopes: [{ kind: 'module', start: 0, end: source.length, bindings: bindings.map(b => b.name), nested_count: 1 }],
-        macros,
-        props: [],
-        emits: [],
-        css: hasScoped ? { selector_count: 0, unused_selectors: [], v_bind_count: 0, is_scoped: true } : undefined,
-        diagnostics: [],
-        stats: { binding_count: bindings.length, unused_binding_count: 0, scope_count: 1, macro_count: macros.length, error_count: 0, warning_count: 0 },
-      },
+    // Generate VIR text
+    let vir = '';
+    vir += '╭─────────────────────────────────────────────────────────────────╮\n';
+    vir += '│  VIR — Vize Intermediate Representation (Mock)                  │\n';
+    vir += '╰─────────────────────────────────────────────────────────────────╯\n';
+    vir += '\n';
+
+    // Macros section
+    if (macros.length > 0) {
+      vir += '■ MACROS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const macro of macros) {
+        vir += `│  @${macro.name}`;
+        if (macro.type_args) {
+          vir += ` <${macro.type_args.trim().substring(0, 30)}${macro.type_args.length > 30 ? '...' : ''}>`;
+        }
+        vir += '\n';
+      }
+      vir += '│\n';
+    }
+
+    // Props section
+    if (props.length > 0) {
+      vir += '■ PROPS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const prop of props) {
+        vir += `│  ▸ ${prop.name}${prop.required ? ' (required)' : ' (optional)'}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // Emits section
+    if (emits.length > 0) {
+      vir += '■ EMITS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const emit of emits) {
+        vir += `│  ▸ ${emit.name}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // Bindings section
+    if (bindings.length > 0) {
+      vir += '■ BINDINGS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const binding of bindings) {
+        vir += `│  ▸ ${binding.name} [${binding.kind}] → ${binding.source}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // CSS section
+    if (hasScoped) {
+      const selectorCount = (source.match(/[.#\w][\w-]*\s*\{/g) || []).length;
+      const vBindCount = (source.match(/v-bind\(/g) || []).length;
+      vir += '■ STYLE\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      vir += `│  scoped: true\n`;
+      vir += `│  selectors: ${selectorCount}\n`;
+      vir += `│  v-bind(): ${vBindCount}\n`;
+      vir += '│\n';
+    }
+
+    // Generate scopes from source analysis
+    const scopes: ScopeDisplay[] = [];
+    let scopeId = 0;
+
+    // Module scope (root)
+    const moduleScope: ScopeDisplay = {
+      id: scopeId++,
+      kind: 'module',
+      kindStr: 'Module',
+      start: 0,
+      end: source.length,
+      bindings: bindings.map(b => b.name),
+      children: [],
+      depth: 0,
+    };
+    scopes.push(moduleScope);
+
+    // Detect setup scope if script setup exists
+    if (hasScriptSetup) {
+      const scriptSetupMatch = source.match(/<script[^>]*setup[^>]*>([\s\S]*?)<\/script>/);
+      if (scriptSetupMatch) {
+        const setupStart = source.indexOf(scriptSetupMatch[0]);
+        const setupEnd = setupStart + scriptSetupMatch[0].length;
+        const setupScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'setup',
+          kindStr: 'Setup',
+          start: setupStart,
+          end: setupEnd,
+          bindings: bindings.map(b => b.name),
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(setupScope.id);
+        scopes.push(setupScope);
+
+        // Detect function scopes inside setup
+        const functionRegex = /function\s+(\w+)\s*\([^)]*\)\s*\{/g;
+        let funcMatch;
+        while ((funcMatch = functionRegex.exec(scriptSetupMatch[1])) !== null) {
+          const funcScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'function',
+            kindStr: `Function (${funcMatch[1]})`,
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 50,
+            bindings: [],
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(funcScope.id);
+          scopes.push(funcScope);
+        }
+
+        // Detect arrow function scopes
+        const arrowRegex = /const\s+(\w+)\s*=\s*\([^)]*\)\s*=>/g;
+        while ((funcMatch = arrowRegex.exec(scriptSetupMatch[1])) !== null) {
+          const arrowScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'arrowFunction',
+            kindStr: `Arrow (${funcMatch[1]})`,
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 50,
+            bindings: [],
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(arrowScope.id);
+          scopes.push(arrowScope);
+        }
+
+        // Detect watch callbacks
+        const watchRegex = /watch\s*\([^,]+,\s*\(?([^)]*)\)?\s*=>/g;
+        while ((funcMatch = watchRegex.exec(scriptSetupMatch[1])) !== null) {
+          const params = funcMatch[1]?.split(',').map(p => p.trim()).filter(Boolean) || [];
+          const watchScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'arrowFunction',
+            kindStr: 'Watch Callback',
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 30,
+            bindings: params,
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(watchScope.id);
+          scopes.push(watchScope);
+        }
+      }
+    }
+
+    // Detect v-for scopes in template
+    const templateMatch = source.match(/<template>([\s\S]*?)<\/template>/);
+    if (templateMatch) {
+      const templateStart = source.indexOf(templateMatch[0]);
+      const vForRegex = /v-for="([^"]+)"/g;
+      let vForMatch;
+      while ((vForMatch = vForRegex.exec(templateMatch[1])) !== null) {
+        const expr = vForMatch[1];
+        const inMatch = expr.match(/\(?([^)]+)\)?\s+(?:in|of)\s+/);
+        const vForBindings: string[] = [];
+        if (inMatch) {
+          const aliases = inMatch[1].split(',').map(s => s.trim());
+          vForBindings.push(...aliases);
+        }
+
+        const vForScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'vFor',
+          kindStr: `v-for`,
+          start: templateStart + vForMatch.index,
+          end: templateStart + vForMatch.index + vForMatch[0].length,
+          bindings: vForBindings,
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(vForScope.id);
+        scopes.push(vForScope);
+      }
+
+      // Detect v-slot scopes
+      const vSlotRegex = /v-slot(?::(\w+))?="([^"]+)"/g;
+      let vSlotMatch;
+      while ((vSlotMatch = vSlotRegex.exec(templateMatch[1])) !== null) {
+        const slotName = vSlotMatch[1] || 'default';
+        const slotParams = vSlotMatch[2]?.match(/\{?\s*([^}]+)\s*\}?/)?.[1]?.split(',').map(s => s.trim()) || [];
+        const vSlotScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'vSlot',
+          kindStr: `v-slot:${slotName}`,
+          start: templateStart + vSlotMatch.index,
+          end: templateStart + vSlotMatch.index + vSlotMatch[0].length,
+          bindings: slotParams,
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(vSlotScope.id);
+        scopes.push(vSlotScope);
+      }
+
+      // Detect inline event handler scopes
+      const eventRegex = /@(\w+)="([^"]+)"/g;
+      let eventMatch;
+      while ((eventMatch = eventRegex.exec(templateMatch[1])) !== null) {
+        const handler = eventMatch[2];
+        if (handler.includes('=>') || handler.includes('$event')) {
+          const eventScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: 0,
+            kind: 'arrowFunction',
+            kindStr: `@${eventMatch[1]} handler`,
+            start: templateStart + eventMatch.index,
+            end: templateStart + eventMatch.index + eventMatch[0].length,
+            bindings: ['$event'],
+            children: [],
+            depth: 1,
+          };
+          moduleScope.children.push(eventScope.id);
+          scopes.push(eventScope);
+        }
+      }
+    }
+
+    // Add scopes to VIR
+    if (scopes.length > 1) {
+      vir += '■ SCOPES\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const scope of scopes) {
+        const indent = '  '.repeat(scope.depth);
+        vir += `│${indent}▸ ${scope.kindStr} [${scope.start}:${scope.end}]`;
+        if (scope.bindings.length > 0) {
+          vir += ` → {${scope.bindings.join(', ')}}`;
+        }
+        vir += '\n';
+      }
+      vir += '│\n';
+    }
+
+    // Stats section
+    vir += '■ STATS\n';
+    vir += '├─────────────────────────────────────────────────────────────────\n';
+    vir += `│  bindings: ${bindings.length}\n`;
+    vir += `│  macros: ${macros.length}\n`;
+    vir += `│  props: ${props.length}\n`;
+    vir += `│  emits: ${emits.length}\n`;
+    vir += `│  scopes: ${scopes.length}\n`;
+    vir += '╰─────────────────────────────────────────────────────────────────╯\n';
+
+    const summary: AnalysisSummary = {
+      is_setup: hasScriptSetup,
+      bindings,
+      scopes,
+      macros,
+      props,
+      emits,
+      css: hasScoped ? {
+        selector_count: (source.match(/[.#\w][\w-]*\s*\{/g) || []).length,
+        unused_selectors: [],
+        v_bind_count: (source.match(/v-bind\(/g) || []).length,
+        is_scoped: true,
+      } : undefined,
       diagnostics: [],
+      stats: {
+        binding_count: bindings.length,
+        unused_binding_count: 0,
+        scope_count: scopes.length,
+        macro_count: macros.length,
+        error_count: 0,
+        warning_count: 0,
+      },
+    };
+
+    return {
+      summary,
+      diagnostics: [],
+      vir,
     };
   };
 
@@ -1736,12 +2081,12 @@ function createMockModule(): WasmModule {
     const hasScriptSetup = source.includes('<script setup');
     const hasDefineProps = source.includes('defineProps');
     const hasDefineEmits = source.includes('defineEmits');
-    const hasRef = source.includes('ref(');
     const hasScoped = source.includes('<style scoped');
 
     const bindings: BindingDisplay[] = [];
     const macros: MacroDisplay[] = [];
     const props: PropDisplay[] = [];
+    const emits: EmitDisplay[] = [];
 
     // Extract ref bindings
     const refMatches2 = source.matchAll(/const\s+(\w+)\s*=\s*ref\(/g);
@@ -1768,43 +2113,362 @@ function createMockModule(): WasmModule {
       });
     }
 
+    // Extract computed bindings
+    const computedMatches = source.matchAll(/const\s+(\w+)\s*=\s*computed\(/g);
+    for (const match of computedMatches) {
+      bindings.push({
+        name: match[1],
+        kind: 'SetupComputed',
+        source: 'computed' as BindingSource,
+        metadata: {
+          isExported: false,
+          isImported: false,
+          isComponent: false,
+          isDirective: false,
+          needsValue: true,
+          usedInTemplate: true,
+          usedInScript: true,
+          scopeDepth: 0,
+        },
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+        isUsed: true,
+        isMutated: false,
+        referenceCount: 1,
+      });
+    }
+
+    // Extract function bindings
+    const functionMatches = source.matchAll(/function\s+(\w+)\s*\(/g);
+    for (const match of functionMatches) {
+      bindings.push({
+        name: match[1],
+        kind: 'SetupConst',
+        source: 'function' as BindingSource,
+        metadata: {
+          isExported: false,
+          isImported: false,
+          isComponent: false,
+          isDirective: false,
+          needsValue: false,
+          usedInTemplate: true,
+          usedInScript: true,
+          scopeDepth: 0,
+        },
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+        isUsed: true,
+        isMutated: false,
+        referenceCount: 1,
+      });
+    }
+
     // Extract defineProps
     if (hasDefineProps) {
-      const propsMatch = source.match(/defineProps[^)]+\)/);
+      const propsMatch = source.match(/defineProps<\{([^}]+)\}>/);
       if (propsMatch) {
         macros.push({
           name: 'defineProps',
           start: propsMatch.index || 0,
           end: (propsMatch.index || 0) + propsMatch[0].length,
+          type_args: propsMatch[1],
         });
+        // Extract prop names from type
+        const propNameMatches = propsMatch[1].matchAll(/(\w+)(\?)?:/g);
+        for (const propMatch of propNameMatches) {
+          props.push({
+            name: propMatch[1],
+            required: !propMatch[2],
+            has_default: false,
+          });
+        }
       }
     }
 
     // Extract defineEmits
     if (hasDefineEmits) {
-      const emitsMatch = source.match(/defineEmits[^)]+\)/);
+      const emitsMatch = source.match(/defineEmits<\{([^}]+)\}>/);
       if (emitsMatch) {
         macros.push({
           name: 'defineEmits',
           start: emitsMatch.index || 0,
           end: (emitsMatch.index || 0) + emitsMatch[0].length,
+          type_args: emitsMatch[1],
         });
+        // Extract emit names from type
+        const emitNameMatches = emitsMatch[1].matchAll(/(\w+):/g);
+        for (const emitMatch of emitNameMatches) {
+          emits.push({
+            name: emitMatch[1],
+          });
+        }
       }
     }
+
+    // Generate VIR text
+    let vir = '';
+    vir += '╭─────────────────────────────────────────────────────────────────╮\n';
+    vir += '│  VIR — Vize Intermediate Representation (Mock)                  │\n';
+    vir += '╰─────────────────────────────────────────────────────────────────╯\n';
+    vir += '\n';
+
+    // Macros section
+    if (macros.length > 0) {
+      vir += '■ MACROS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const macro of macros) {
+        vir += `│  @${macro.name}`;
+        if (macro.type_args) {
+          vir += ` <${macro.type_args.trim().substring(0, 30)}${macro.type_args.length > 30 ? '...' : ''}>`;
+        }
+        vir += '\n';
+      }
+      vir += '│\n';
+    }
+
+    // Props section
+    if (props.length > 0) {
+      vir += '■ PROPS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const prop of props) {
+        vir += `│  ▸ ${prop.name}${prop.required ? ' (required)' : ' (optional)'}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // Emits section
+    if (emits.length > 0) {
+      vir += '■ EMITS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const emit of emits) {
+        vir += `│  ▸ ${emit.name}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // Bindings section
+    if (bindings.length > 0) {
+      vir += '■ BINDINGS\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const binding of bindings) {
+        vir += `│  ▸ ${binding.name} [${binding.kind}] → ${binding.source}\n`;
+      }
+      vir += '│\n';
+    }
+
+    // CSS section
+    if (hasScoped) {
+      const selectorCount = (source.match(/[.#\w][\w-]*\s*\{/g) || []).length;
+      const vBindCount = (source.match(/v-bind\(/g) || []).length;
+      vir += '■ STYLE\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      vir += `│  scoped: true\n`;
+      vir += `│  selectors: ${selectorCount}\n`;
+      vir += `│  v-bind(): ${vBindCount}\n`;
+      vir += '│\n';
+    }
+
+    // Generate scopes from source analysis
+    const scopes: ScopeDisplay[] = [];
+    let scopeId = 0;
+
+    // Module scope (root)
+    const moduleScope: ScopeDisplay = {
+      id: scopeId++,
+      kind: 'module',
+      kindStr: 'Module',
+      start: 0,
+      end: source.length,
+      bindings: bindings.map(b => b.name),
+      children: [],
+      depth: 0,
+    };
+    scopes.push(moduleScope);
+
+    // Detect setup scope if script setup exists
+    if (hasScriptSetup) {
+      const scriptSetupMatch = source.match(/<script[^>]*setup[^>]*>([\s\S]*?)<\/script>/);
+      if (scriptSetupMatch) {
+        const setupStart = source.indexOf(scriptSetupMatch[0]);
+        const setupEnd = setupStart + scriptSetupMatch[0].length;
+        const setupScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'setup',
+          kindStr: 'Setup',
+          start: setupStart,
+          end: setupEnd,
+          bindings: bindings.map(b => b.name),
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(setupScope.id);
+        scopes.push(setupScope);
+
+        // Detect function scopes inside setup
+        const functionRegex = /function\s+(\w+)\s*\([^)]*\)\s*\{/g;
+        let funcMatch;
+        while ((funcMatch = functionRegex.exec(scriptSetupMatch[1])) !== null) {
+          const funcScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'function',
+            kindStr: `Function (${funcMatch[1]})`,
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 50,
+            bindings: [],
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(funcScope.id);
+          scopes.push(funcScope);
+        }
+
+        // Detect arrow function scopes
+        const arrowRegex = /const\s+(\w+)\s*=\s*\([^)]*\)\s*=>/g;
+        while ((funcMatch = arrowRegex.exec(scriptSetupMatch[1])) !== null) {
+          const arrowScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'arrowFunction',
+            kindStr: `Arrow (${funcMatch[1]})`,
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 50,
+            bindings: [],
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(arrowScope.id);
+          scopes.push(arrowScope);
+        }
+
+        // Detect watch callbacks
+        const watchRegex = /watch\s*\([^,]+,\s*\(?([^)]*)\)?\s*=>/g;
+        while ((funcMatch = watchRegex.exec(scriptSetupMatch[1])) !== null) {
+          const params = funcMatch[1]?.split(',').map(p => p.trim()).filter(Boolean) || [];
+          const watchScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: setupScope.id,
+            kind: 'arrowFunction',
+            kindStr: 'Watch Callback',
+            start: setupStart + funcMatch.index,
+            end: setupStart + funcMatch.index + funcMatch[0].length + 30,
+            bindings: params,
+            children: [],
+            depth: 2,
+          };
+          setupScope.children.push(watchScope.id);
+          scopes.push(watchScope);
+        }
+      }
+    }
+
+    // Detect v-for scopes in template
+    const templateMatch = source.match(/<template>([\s\S]*?)<\/template>/);
+    if (templateMatch) {
+      const templateStart = source.indexOf(templateMatch[0]);
+      const vForRegex = /v-for="([^"]+)"/g;
+      let vForMatch;
+      while ((vForMatch = vForRegex.exec(templateMatch[1])) !== null) {
+        const expr = vForMatch[1];
+        const inMatch = expr.match(/\(?([^)]+)\)?\s+(?:in|of)\s+/);
+        const vForBindings: string[] = [];
+        if (inMatch) {
+          const aliases = inMatch[1].split(',').map(s => s.trim());
+          vForBindings.push(...aliases);
+        }
+
+        const vForScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'vFor',
+          kindStr: `v-for`,
+          start: templateStart + vForMatch.index,
+          end: templateStart + vForMatch.index + vForMatch[0].length,
+          bindings: vForBindings,
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(vForScope.id);
+        scopes.push(vForScope);
+      }
+
+      // Detect v-slot scopes
+      const vSlotRegex = /v-slot(?::(\w+))?="([^"]+)"/g;
+      let vSlotMatch;
+      while ((vSlotMatch = vSlotRegex.exec(templateMatch[1])) !== null) {
+        const slotName = vSlotMatch[1] || 'default';
+        const slotParams = vSlotMatch[2]?.match(/\{?\s*([^}]+)\s*\}?/)?.[1]?.split(',').map(s => s.trim()) || [];
+        const vSlotScope: ScopeDisplay = {
+          id: scopeId++,
+          parentId: 0,
+          kind: 'vSlot',
+          kindStr: `v-slot:${slotName}`,
+          start: templateStart + vSlotMatch.index,
+          end: templateStart + vSlotMatch.index + vSlotMatch[0].length,
+          bindings: slotParams,
+          children: [],
+          depth: 1,
+        };
+        moduleScope.children.push(vSlotScope.id);
+        scopes.push(vSlotScope);
+      }
+
+      // Detect inline event handler scopes
+      const eventRegex = /@(\w+)="([^"]+)"/g;
+      let eventMatch;
+      while ((eventMatch = eventRegex.exec(templateMatch[1])) !== null) {
+        const handler = eventMatch[2];
+        if (handler.includes('=>') || handler.includes('$event')) {
+          const eventScope: ScopeDisplay = {
+            id: scopeId++,
+            parentId: 0,
+            kind: 'arrowFunction',
+            kindStr: `@${eventMatch[1]} handler`,
+            start: templateStart + eventMatch.index,
+            end: templateStart + eventMatch.index + eventMatch[0].length,
+            bindings: ['$event'],
+            children: [],
+            depth: 1,
+          };
+          moduleScope.children.push(eventScope.id);
+          scopes.push(eventScope);
+        }
+      }
+    }
+
+    // Add scopes to VIR
+    if (scopes.length > 1) {
+      vir += '■ SCOPES\n';
+      vir += '├─────────────────────────────────────────────────────────────────\n';
+      for (const scope of scopes) {
+        const indent = '  '.repeat(scope.depth);
+        vir += `│${indent}▸ ${scope.kindStr} [${scope.start}:${scope.end}]`;
+        if (scope.bindings.length > 0) {
+          vir += ` → {${scope.bindings.join(', ')}}`;
+        }
+        vir += '\n';
+      }
+      vir += '│\n';
+    }
+
+    // Stats section
+    vir += '■ STATS\n';
+    vir += '├─────────────────────────────────────────────────────────────────\n';
+    vir += `│  bindings: ${bindings.length}\n`;
+    vir += `│  macros: ${macros.length}\n`;
+    vir += `│  props: ${props.length}\n`;
+    vir += `│  emits: ${emits.length}\n`;
+    vir += `│  scopes: ${scopes.length}\n`;
+    vir += '╰─────────────────────────────────────────────────────────────────╯\n';
 
     const summary: AnalysisSummary = {
       is_setup: hasScriptSetup,
       bindings,
-      scopes: [{
-        kind: 'module',
-        start: 0,
-        end: source.length,
-        bindings: bindings.map(b => b.name),
-        nested_count: 1,
-      }],
+      scopes,
       macros,
       props,
-      emits: [],
+      emits,
       css: hasScoped ? {
         selector_count: (source.match(/[.#\w][\w-]*\s*\{/g) || []).length,
         unused_selectors: [],
@@ -1815,7 +2479,7 @@ function createMockModule(): WasmModule {
       stats: {
         binding_count: bindings.length,
         unused_binding_count: 0,
-        scope_count: 1,
+        scope_count: scopes.length,
         macro_count: macros.length,
         error_count: 0,
         warning_count: 0,
@@ -1825,6 +2489,7 @@ function createMockModule(): WasmModule {
     return {
       summary,
       diagnostics: [],
+      vir,
     };
   };
 

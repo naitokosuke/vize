@@ -105,13 +105,26 @@ static VUE_BUILTINS_SET: phf::Set<&'static str> = phf_set! {
 
 /// Vue built-in components that don't need resolution.
 /// These are imported directly from Vue runtime.
+/// Includes both PascalCase and kebab-case variants.
 static BUILTIN_COMPONENTS_SET: phf::Set<&'static str> = phf_set! {
+    // PascalCase (as used in JSX and imports)
     "Transition",
     "TransitionGroup",
     "KeepAlive",
     "Suspense",
     "Teleport",
     "BaseTransition",
+    // kebab-case (as commonly used in templates)
+    "transition",
+    "transition-group",
+    "keep-alive",
+    "suspense",
+    "teleport",
+    "base-transition",
+    // Special template elements
+    "component",
+    "slot",
+    "template",
 };
 
 /// Combined set of all identifiers that should not be prefixed with _ctx.

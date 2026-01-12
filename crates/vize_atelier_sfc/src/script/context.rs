@@ -11,6 +11,7 @@ use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
 
 use crate::types::{BindingMetadata, BindingType};
+use vize_croquis::macros::is_builtin_macro;
 
 use super::define_props_destructure::process_props_destructure;
 use super::{MacroCall, ScriptSetupMacros};
@@ -545,26 +546,12 @@ fn is_valid_identifier(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-/// Check if a name is a compiler macro
-fn is_compiler_macro(name: &str) -> bool {
-    matches!(
-        name,
-        "defineProps"
-            | "defineEmits"
-            | "defineExpose"
-            | "defineOptions"
-            | "defineSlots"
-            | "defineModel"
-            | "withDefaults"
-    )
-}
-
 /// Extract macro call from expression
 fn extract_macro_from_expr(expr: &Expression<'_>, source: &str) -> Option<(String, MacroCall)> {
     if let Expression::CallExpression(call) = expr {
         let callee_name = get_callee_name(call)?;
 
-        if is_compiler_macro(&callee_name) {
+        if is_builtin_macro(&callee_name) {
             let type_args = extract_type_args_from_call(call, source);
             let args = extract_args_from_call(call, source);
 

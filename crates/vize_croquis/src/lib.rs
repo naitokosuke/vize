@@ -44,6 +44,7 @@ pub mod macros;
 pub mod optimization;
 pub mod provide;
 pub mod reactivity;
+pub mod types;
 
 // Re-export core types
 pub use scope::*;

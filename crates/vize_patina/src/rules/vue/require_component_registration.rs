@@ -42,6 +42,7 @@
 use crate::context::LintContext;
 use crate::diagnostic::{LintDiagnostic, Severity};
 use crate::rule::{Rule, RuleCategory, RuleMeta};
+use vize_croquis::builtins::is_builtin_component;
 use vize_relief::ast::{ElementNode, RootNode};
 
 static META: RuleMeta = RuleMeta {
@@ -51,20 +52,6 @@ static META: RuleMeta = RuleMeta {
     fixable: false,
     default_severity: Severity::Warning,
 };
-
-/// Vue built-in components and elements
-const BUILTIN_COMPONENTS: &[&str] = &[
-    // Vue built-in
-    "component",
-    "slot",
-    "template",
-    "transition",
-    "transition-group",
-    "keep-alive",
-    "teleport",
-    "suspense",
-    // HTML elements are handled by checking for lowercase
-];
 
 /// Components commonly provided by frameworks (Nuxt, etc.)
 const FRAMEWORK_GLOBALS: &[&str] = &[
@@ -129,9 +116,15 @@ impl RequireComponentRegistration {
     }
 
     /// Check if a component is a Vue built-in
+    /// Uses croquis builtins for centralized builtin detection
     fn is_builtin(&self, tag: &str) -> bool {
+        // Check exact match first (handles PascalCase like "Transition")
+        if is_builtin_component(tag) {
+            return true;
+        }
+        // Check lowercase (handles kebab-case like "keep-alive")
         let lower = tag.to_lowercase();
-        BUILTIN_COMPONENTS.contains(&lower.as_str())
+        is_builtin_component(&lower)
     }
 
     /// Check if a component is a framework global
