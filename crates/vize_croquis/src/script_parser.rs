@@ -50,72 +50,66 @@ fn setup_global_scopes(scopes: &mut ScopeChain, source_len: u32) {
     // Root is already ~js (JsGlobalUniversal) with common globals
     // Current scope is root (~js)
 
-    // !client - Browser-only globals (WHATWG Living Standard)
+    // !client - Browser-only globals (WHATWG Living Standard + HTML timers)
     // Used as parent for onMounted, onUnmounted, etc.
     scopes.enter_js_global_scope(
         JsGlobalScopeData {
             runtime: JsRuntime::Browser,
             globals: vize_carton::smallvec![
-                // Window & Document (Living Standard)
-                CompactString::const_new("window"),
-                CompactString::const_new("self"),
-                CompactString::const_new("document"),
-                CompactString::const_new("navigator"),
-                CompactString::const_new("screen"),
-                CompactString::const_new("location"),
-                CompactString::const_new("history"),
-                // Storage
-                CompactString::const_new("localStorage"),
-                CompactString::const_new("sessionStorage"),
-                CompactString::const_new("indexedDB"),
-                // Animation
-                CompactString::const_new("requestAnimationFrame"),
+                CompactString::const_new("alert"),
+                CompactString::const_new("Audio"),
                 CompactString::const_new("cancelAnimationFrame"),
-                CompactString::const_new("requestIdleCallback"),
                 CompactString::const_new("cancelIdleCallback"),
-                // Observers
-                CompactString::const_new("IntersectionObserver"),
-                CompactString::const_new("ResizeObserver"),
-                CompactString::const_new("MutationObserver"),
-                CompactString::const_new("PerformanceObserver"),
-                // DOM
-                CompactString::const_new("Element"),
-                CompactString::const_new("HTMLElement"),
-                CompactString::const_new("Node"),
-                CompactString::const_new("NodeList"),
+                CompactString::const_new("CanvasRenderingContext2D"),
+                CompactString::const_new("clearInterval"),
+                CompactString::const_new("clearTimeout"),
+                CompactString::const_new("close"),
+                CompactString::const_new("confirm"),
+                CompactString::const_new("customElements"),
+                CompactString::const_new("document"),
                 CompactString::const_new("Document"),
                 CompactString::const_new("DocumentFragment"),
-                // Events
-                CompactString::const_new("MouseEvent"),
-                CompactString::const_new("KeyboardEvent"),
-                CompactString::const_new("TouchEvent"),
-                CompactString::const_new("PointerEvent"),
+                CompactString::const_new("Element"),
                 CompactString::const_new("FocusEvent"),
-                CompactString::const_new("InputEvent"),
-                // Web Components
-                CompactString::const_new("customElements"),
-                CompactString::const_new("ShadowRoot"),
-                // Media
-                CompactString::const_new("Audio"),
-                CompactString::const_new("Image"),
-                CompactString::const_new("MediaQueryList"),
-                CompactString::const_new("matchMedia"),
-                // Canvas
-                CompactString::const_new("CanvasRenderingContext2D"),
-                CompactString::const_new("WebGLRenderingContext"),
-                CompactString::const_new("WebGL2RenderingContext"),
-                // Network (browser-specific)
-                CompactString::const_new("WebSocket"),
-                CompactString::const_new("XMLHttpRequest"),
-                // Misc
                 CompactString::const_new("getComputedStyle"),
                 CompactString::const_new("getSelection"),
-                CompactString::const_new("alert"),
-                CompactString::const_new("confirm"),
-                CompactString::const_new("prompt"),
+                CompactString::const_new("history"),
+                CompactString::const_new("HTMLElement"),
+                CompactString::const_new("Image"),
+                CompactString::const_new("indexedDB"),
+                CompactString::const_new("InputEvent"),
+                CompactString::const_new("IntersectionObserver"),
+                CompactString::const_new("KeyboardEvent"),
+                CompactString::const_new("localStorage"),
+                CompactString::const_new("location"),
+                CompactString::const_new("matchMedia"),
+                CompactString::const_new("MediaQueryList"),
+                CompactString::const_new("MouseEvent"),
+                CompactString::const_new("MutationObserver"),
+                CompactString::const_new("navigator"),
+                CompactString::const_new("Node"),
+                CompactString::const_new("NodeList"),
                 CompactString::const_new("open"),
-                CompactString::const_new("close"),
+                CompactString::const_new("PerformanceObserver"),
+                CompactString::const_new("PointerEvent"),
                 CompactString::const_new("print"),
+                CompactString::const_new("prompt"),
+                CompactString::const_new("queueMicrotask"),
+                CompactString::const_new("requestAnimationFrame"),
+                CompactString::const_new("requestIdleCallback"),
+                CompactString::const_new("ResizeObserver"),
+                CompactString::const_new("screen"),
+                CompactString::const_new("self"),
+                CompactString::const_new("sessionStorage"),
+                CompactString::const_new("setInterval"),
+                CompactString::const_new("setTimeout"),
+                CompactString::const_new("ShadowRoot"),
+                CompactString::const_new("TouchEvent"),
+                CompactString::const_new("WebGL2RenderingContext"),
+                CompactString::const_new("WebGLRenderingContext"),
+                CompactString::const_new("WebSocket"),
+                CompactString::const_new("window"),
+                CompactString::const_new("XMLHttpRequest"),
             ],
         },
         0,
@@ -123,17 +117,16 @@ fn setup_global_scopes(scopes: &mut ScopeChain, source_len: u32) {
     );
     scopes.exit_scope(); // Back to ~univ
 
-    // #server - Server-only globals (WinterCG Minimum Common API extensions)
-    // ESM-based, reserved for future SSR/Server Components support
+    // #server - Server-only globals (WinterCG extensions, ESM-based)
+    // Reserved for future SSR/Server Components support
     scopes.enter_js_global_scope(
         JsGlobalScopeData {
             runtime: JsRuntime::Node,
             globals: vize_carton::smallvec![
-                // Node.js specific (not in WinterCG common)
-                CompactString::const_new("process"),
                 CompactString::const_new("Buffer"),
-                CompactString::const_new("setImmediate"),
                 CompactString::const_new("clearImmediate"),
+                CompactString::const_new("process"),
+                CompactString::const_new("setImmediate"),
             ],
         },
         0,
@@ -141,33 +134,29 @@ fn setup_global_scopes(scopes: &mut ScopeChain, source_len: u32) {
     );
     scopes.exit_scope(); // Back to ~univ
 
-    // ~vue - Vue globals (parent: ~js, meta scope)
+    // ~vue - Vue globals (parent: ~univ, meta scope)
     scopes.enter_vue_global_scope(
         VueGlobalScopeData {
             globals: vize_carton::smallvec![
-                // Event & slot related
-                CompactString::const_new("$emit"),
-                CompactString::const_new("$slots"),
                 CompactString::const_new("$attrs"),
-                CompactString::const_new("$refs"),
-                // DOM & instance
-                CompactString::const_new("$el"),
-                CompactString::const_new("$parent"),
-                CompactString::const_new("$root"),
-                // Data & options
                 CompactString::const_new("$data"),
-                CompactString::const_new("$props"),
-                CompactString::const_new("$options"),
-                // Lifecycle & reactivity
-                CompactString::const_new("$watch"),
-                CompactString::const_new("$nextTick"),
+                CompactString::const_new("$el"),
+                CompactString::const_new("$emit"),
                 CompactString::const_new("$forceUpdate"),
+                CompactString::const_new("$nextTick"),
+                CompactString::const_new("$options"),
+                CompactString::const_new("$parent"),
+                CompactString::const_new("$props"),
+                CompactString::const_new("$refs"),
+                CompactString::const_new("$root"),
+                CompactString::const_new("$slots"),
+                CompactString::const_new("$watch"),
             ],
         },
         0,
         0,
     );
-    scopes.exit_scope(); // Back to ~js
+    scopes.exit_scope(); // Back to ~univ
 
     // ~mod - module scope (parent: ~js, covers entire SFC)
     scopes.enter_module_scope(0, source_len);
