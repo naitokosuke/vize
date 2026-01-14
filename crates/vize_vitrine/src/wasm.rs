@@ -971,6 +971,7 @@ pub fn get_locales_wasm() -> Result<JsValue, JsValue> {
 /// Analyze Vue SFC for semantic information (scopes, bindings, etc.)
 #[wasm_bindgen(js_name = "analyzeSfc")]
 pub fn analyze_sfc_wasm(source: &str, options: JsValue) -> Result<JsValue, JsValue> {
+    use vize_atelier_core::parser::parse;
     use vize_atelier_sfc::{parse_sfc, SfcParseOptions};
     use vize_croquis::{Analyzer, AnalyzerOptions};
 
@@ -1004,11 +1005,25 @@ pub fn analyze_sfc_wasm(source: &str, options: JsValue) -> Result<JsValue, JsVal
         0
     };
 
+    // Track template offset for coordinate adjustment
+    let template_offset: u32 = descriptor
+        .template
+        .as_ref()
+        .map(|t| t.loc.start as u32)
+        .unwrap_or(0);
+
+    // Analyze template if present
+    if let Some(ref template) = descriptor.template {
+        let allocator = Bump::new();
+        let (root, _errors) = parse(&allocator, &template.content);
+        analyzer.analyze_template(&root);
+    }
+
     // Get analysis summary
     let summary = analyzer.finish();
 
     // Convert scopes to JSON with span information
-    // Adjust offsets to SFC coordinates (add script block offset)
+    // Adjust offsets to SFC coordinates based on scope origin
     let scopes: Vec<serde_json::Value> = summary
         .scopes
         .iter()
@@ -1017,9 +1032,23 @@ pub fn analyze_sfc_wasm(source: &str, options: JsValue) -> Result<JsValue, JsVal
             let parent_ids: Vec<u32> = scope.parents.iter().map(|p| p.as_u32()).collect();
             let depth = summary.scopes.depth(scope.id);
 
+            // Determine if this is a template scope
+            let is_template_scope = matches!(
+                scope.kind,
+                vize_croquis::ScopeKind::VFor
+                    | vize_croquis::ScopeKind::VSlot
+                    | vize_croquis::ScopeKind::EventHandler
+                    | vize_croquis::ScopeKind::Callback
+            );
+
             // Adjust spans to SFC coordinates (skip global scopes at 0:0)
             let (start, end) = if scope.span.start == 0 && scope.span.end == 0 {
                 (0u32, 0u32)
+            } else if is_template_scope {
+                (
+                    scope.span.start + template_offset,
+                    scope.span.end + template_offset,
+                )
             } else {
                 (
                     scope.span.start + script_offset,
@@ -1036,6 +1065,7 @@ pub fn analyze_sfc_wasm(source: &str, options: JsValue) -> Result<JsValue, JsVal
                 "end": end,
                 "bindings": binding_names,
                 "depth": depth,
+                "isTemplateScope": is_template_scope,
             })
         })
         .collect();

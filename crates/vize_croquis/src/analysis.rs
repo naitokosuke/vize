@@ -327,8 +327,50 @@ impl AnalysisSummary {
             let mut prefix_counters: FxHashMap<&str, u32> = FxHashMap::default();
             let mut id_to_display: FxHashMap<u32, String> = FxHashMap::default();
 
+            // Helper to determine effective prefix by checking parent chain
+            // If any ancestor is ClientOnly, child scopes should also be !
+            // If any ancestor is server-only, child scopes should also be #
+            let get_effective_prefix = |scope: &crate::scope::Scope| -> &'static str {
+                // First check the scope's own prefix
+                let own_prefix = scope.kind.prefix();
+                if own_prefix != "~" {
+                    return own_prefix;
+                }
+
+                // Check parent chain for client-only or server-only context
+                let mut visited: vize_carton::SmallVec<[crate::scope::ScopeId; 8]> =
+                    vize_carton::SmallVec::new();
+                let mut queue: vize_carton::SmallVec<[crate::scope::ScopeId; 8]> =
+                    scope.parents.iter().copied().collect();
+
+                while let Some(parent_id) = queue.pop() {
+                    if visited.contains(&parent_id) {
+                        continue;
+                    }
+                    visited.push(parent_id);
+
+                    if let Some(parent) = self.scopes.get_scope(parent_id) {
+                        let parent_prefix = parent.kind.prefix();
+                        if parent_prefix == "!" {
+                            return "!"; // Client-only context propagates down
+                        }
+                        if parent_prefix == "#" {
+                            return "#"; // Server-only context propagates down
+                        }
+                        // Add grandparents to queue
+                        for &gp in &parent.parents {
+                            if !visited.contains(&gp) {
+                                queue.push(gp);
+                            }
+                        }
+                    }
+                }
+
+                "~" // Default to universal
+            };
+
             for scope in self.scopes.iter() {
-                let prefix = scope.kind.prefix();
+                let prefix = get_effective_prefix(scope);
                 let counter = prefix_counters.entry(prefix).or_insert(0);
                 id_to_display.insert(scope.id.as_u32(), format!("{}{}", prefix, *counter));
                 *counter += 1;

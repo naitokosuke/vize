@@ -26,8 +26,13 @@
 //! ```
 
 use crate::analysis::{AnalysisSummary, UndefinedRef};
-use crate::{ScopeBinding, ScopeKind};
-use vize_carton::CompactString;
+use crate::scope::{CallbackScopeData, EventHandlerScopeData, VForScopeData, VSlotScopeData};
+use crate::ScopeBinding;
+use oxc_allocator::Allocator;
+use oxc_ast::ast::BindingPatternKind;
+use oxc_parser::Parser;
+use oxc_span::SourceType;
+use vize_carton::{smallvec, CompactString, SmallVec};
 use vize_relief::ast::{
     ElementNode, ExpressionNode, ForNode, IfNode, PropNode, RootNode, TemplateChildNode,
 };
@@ -257,6 +262,21 @@ impl Analyzer {
             }
         }
 
+        // Collect v-slot scopes to create (slot name, prop names, offset)
+        let mut slot_scope: Option<(
+            CompactString,
+            vize_carton::SmallVec<[CompactString; 4]>,
+            u32,
+        )> = None;
+
+        // Collect v-for scope to create (value, key, index, source, start, end)
+        let mut for_scope: Option<(
+            vize_carton::SmallVec<[CompactString; 3]>,
+            CompactString,
+            u32,
+            u32,
+        )> = None;
+
         // Check directives
         for prop in &el.props {
             if let PropNode::Directive(dir) = prop {
@@ -270,8 +290,214 @@ impl Analyzer {
                     }
                 }
 
-                // Check expressions for undefined refs
-                if self.options.detect_undefined && self.script_analyzed {
+                // Handle v-for directive
+                if dir.name == "for" && self.options.analyze_template_scopes {
+                    if let Some(ref exp) = dir.exp {
+                        let content = match exp {
+                            ExpressionNode::Simple(s) => s.content.as_str(),
+                            ExpressionNode::Compound(c) => c.loc.source.as_str(),
+                        };
+                        // Parse v-for expression: "item in items" or "(item, index) in items"
+                        let (vars, source) = parse_v_for_expression(content);
+                        if !vars.is_empty() {
+                            for_scope =
+                                Some((vars, source, el.loc.start.offset, el.loc.end.offset));
+                        }
+                    }
+                }
+                // Handle v-slot directive
+                else if dir.name == "slot" && self.options.analyze_template_scopes {
+                    let slot_name = dir
+                        .arg
+                        .as_ref()
+                        .map(|arg| match arg {
+                            ExpressionNode::Simple(s) => CompactString::new(s.content.as_str()),
+                            ExpressionNode::Compound(c) => {
+                                CompactString::new(c.loc.source.as_str())
+                            }
+                        })
+                        .unwrap_or_else(|| CompactString::const_new("default"));
+
+                    // Extract prop names from the expression pattern
+                    let prop_names = if let Some(ref exp) = dir.exp {
+                        let content = match exp {
+                            ExpressionNode::Simple(s) => s.content.as_str(),
+                            ExpressionNode::Compound(c) => c.loc.source.as_str(),
+                        };
+                        extract_slot_props(content)
+                    } else {
+                        smallvec![]
+                    };
+
+                    slot_scope = Some((slot_name, prop_names, dir.loc.start.offset));
+                }
+                // Handle event handlers with inline arrow functions (@click="(e) => ...")
+                else if dir.name == "on" && self.options.analyze_template_scopes {
+                    if let Some(ref exp) = dir.exp {
+                        let content = match exp {
+                            ExpressionNode::Simple(s) => s.content.as_str(),
+                            ExpressionNode::Compound(c) => c.loc.source.as_str(),
+                        };
+
+                        // Check if this is an inline arrow/function expression
+                        if let Some(params) = extract_inline_callback_params(content) {
+                            let event_name = dir
+                                .arg
+                                .as_ref()
+                                .map(|arg| match arg {
+                                    ExpressionNode::Simple(s) => {
+                                        CompactString::new(s.content.as_str())
+                                    }
+                                    ExpressionNode::Compound(c) => {
+                                        CompactString::new(c.loc.source.as_str())
+                                    }
+                                })
+                                .unwrap_or_else(|| CompactString::const_new("unknown"));
+
+                            // Create event handler scope with parameters
+                            self.summary.scopes.enter_event_handler_scope(
+                                EventHandlerScopeData {
+                                    event_name,
+                                    has_implicit_event: false,
+                                    param_names: params.into_iter().collect(),
+                                },
+                                dir.loc.start.offset,
+                                dir.loc.end.offset,
+                            );
+
+                            // Add params to scope_vars for checking
+                            let params_added: Vec<_> = self
+                                .summary
+                                .scopes
+                                .current_scope()
+                                .bindings()
+                                .filter(|(name, _)| *name != "$event")
+                                .map(|(name, _)| CompactString::new(name))
+                                .collect();
+
+                            for param in &params_added {
+                                scope_vars.push(param.clone());
+                            }
+
+                            // Check the expression body (after =>) for undefined refs
+                            if self.options.detect_undefined && self.script_analyzed {
+                                self.check_expression_refs(exp, scope_vars, dir.loc.start.offset);
+                            }
+
+                            // Remove params from scope_vars
+                            for _ in &params_added {
+                                scope_vars.pop();
+                            }
+
+                            // Exit event handler scope
+                            self.summary.scopes.exit_scope();
+                        } else {
+                            // Simple handler reference (e.g., @click="handleClick")
+                            // Check if expression contains $event
+                            let has_implicit_event =
+                                content.contains("$event") || !content.contains('(');
+
+                            if has_implicit_event && !content.contains("=>") {
+                                self.summary.scopes.enter_event_handler_scope(
+                                    EventHandlerScopeData {
+                                        event_name: dir
+                                            .arg
+                                            .as_ref()
+                                            .map(|arg| match arg {
+                                                ExpressionNode::Simple(s) => {
+                                                    CompactString::new(s.content.as_str())
+                                                }
+                                                ExpressionNode::Compound(c) => {
+                                                    CompactString::new(c.loc.source.as_str())
+                                                }
+                                            })
+                                            .unwrap_or_else(|| CompactString::const_new("unknown")),
+                                        has_implicit_event: true,
+                                        param_names: smallvec![],
+                                    },
+                                    dir.loc.start.offset,
+                                    dir.loc.end.offset,
+                                );
+
+                                // $event is available in scope
+                                scope_vars.push(CompactString::const_new("$event"));
+
+                                if self.options.detect_undefined && self.script_analyzed {
+                                    self.check_expression_refs(
+                                        exp,
+                                        scope_vars,
+                                        dir.loc.start.offset,
+                                    );
+                                }
+
+                                scope_vars.pop();
+                                self.summary.scopes.exit_scope();
+                            } else if self.options.detect_undefined && self.script_analyzed {
+                                self.check_expression_refs(exp, scope_vars, dir.loc.start.offset);
+                            }
+                        }
+                    }
+                }
+                // Handle bind callbacks (:class="(item) => ...")
+                else if dir.name == "bind" && self.options.analyze_template_scopes {
+                    if let Some(ref exp) = dir.exp {
+                        let content = match exp {
+                            ExpressionNode::Simple(s) => s.content.as_str(),
+                            ExpressionNode::Compound(c) => c.loc.source.as_str(),
+                        };
+
+                        if let Some(params) = extract_inline_callback_params(content) {
+                            let context = dir
+                                .arg
+                                .as_ref()
+                                .map(|arg| match arg {
+                                    ExpressionNode::Simple(s) => {
+                                        CompactString::new(format!(":{}callback", s.content))
+                                    }
+                                    ExpressionNode::Compound(c) => {
+                                        CompactString::new(format!(":{}callback", c.loc.source))
+                                    }
+                                })
+                                .unwrap_or_else(|| CompactString::const_new(":bind callback"));
+
+                            // Create callback scope
+                            self.summary.scopes.enter_template_callback_scope(
+                                CallbackScopeData {
+                                    param_names: params.into_iter().collect(),
+                                    context,
+                                },
+                                dir.loc.start.offset,
+                                dir.loc.end.offset,
+                            );
+
+                            let params_added: Vec<_> = self
+                                .summary
+                                .scopes
+                                .current_scope()
+                                .bindings()
+                                .map(|(name, _)| CompactString::new(name))
+                                .collect();
+
+                            for param in &params_added {
+                                scope_vars.push(param.clone());
+                            }
+
+                            if self.options.detect_undefined && self.script_analyzed {
+                                self.check_expression_refs(exp, scope_vars, dir.loc.start.offset);
+                            }
+
+                            for _ in &params_added {
+                                scope_vars.pop();
+                            }
+
+                            self.summary.scopes.exit_scope();
+                        } else if self.options.detect_undefined && self.script_analyzed {
+                            self.check_expression_refs(exp, scope_vars, dir.loc.start.offset);
+                        }
+                    }
+                }
+                // Check other expressions for undefined refs
+                else if self.options.detect_undefined && self.script_analyzed {
                     if let Some(ref exp) = dir.exp {
                         // Skip v-for (analyzed separately)
                         if dir.name != "for" {
@@ -282,9 +508,84 @@ impl Analyzer {
             }
         }
 
+        // If we have a v-slot scope, enter it before visiting children
+        let slot_vars_count = if let Some((slot_name, prop_names, offset)) = slot_scope {
+            let count = prop_names.len();
+
+            if count > 0 || self.options.analyze_template_scopes {
+                self.summary.scopes.enter_v_slot_scope(
+                    VSlotScopeData {
+                        name: slot_name,
+                        props_pattern: None,
+                        prop_names: prop_names.iter().cloned().collect(),
+                    },
+                    offset,
+                    el.loc.end.offset,
+                );
+
+                for name in prop_names {
+                    scope_vars.push(name);
+                }
+            }
+
+            count
+        } else {
+            0
+        };
+
+        // If we have a v-for scope, enter it before visiting children
+        let for_vars_count = if let Some((vars, source, start, end)) = for_scope {
+            let count = vars.len();
+
+            if count > 0 {
+                let value_alias = vars
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| CompactString::const_new("_"));
+
+                self.summary.scopes.enter_v_for_scope(
+                    VForScopeData {
+                        value_alias,
+                        key_alias: vars.get(1).cloned(),
+                        index_alias: vars.get(2).cloned(),
+                        source,
+                    },
+                    start,
+                    end,
+                );
+
+                for var in &vars {
+                    self.summary
+                        .scopes
+                        .add_binding(var.clone(), ScopeBinding::new(BindingType::SetupConst, 0));
+                    scope_vars.push(var.clone());
+                }
+            }
+
+            count
+        } else {
+            0
+        };
+
         // Visit children
         for child in el.children.iter() {
             self.visit_template_child(child, scope_vars);
+        }
+
+        // Exit v-for scope if we entered one
+        if for_vars_count > 0 {
+            for _ in 0..for_vars_count {
+                scope_vars.pop();
+            }
+            self.summary.scopes.exit_scope();
+        }
+
+        // Exit v-slot scope if we entered one
+        if slot_vars_count > 0 {
+            for _ in 0..slot_vars_count {
+                scope_vars.pop();
+            }
+            self.summary.scopes.exit_scope();
         }
     }
 
@@ -312,7 +613,28 @@ impl Analyzer {
         let vars_count = vars_added.len();
 
         if self.options.analyze_template_scopes && !vars_added.is_empty() {
-            self.summary.scopes.enter_scope(ScopeKind::VFor);
+            // Get source expression content
+            let source_content = match &for_node.source {
+                ExpressionNode::Simple(s) => CompactString::new(s.content.as_str()),
+                ExpressionNode::Compound(c) => CompactString::new(c.loc.source.as_str()),
+            };
+
+            // value_alias is required (first var), key and index are optional
+            let value_alias = vars_added
+                .first()
+                .cloned()
+                .unwrap_or_else(|| CompactString::const_new("_"));
+
+            self.summary.scopes.enter_v_for_scope(
+                VForScopeData {
+                    value_alias,
+                    key_alias: vars_added.get(1).cloned(),
+                    index_alias: vars_added.get(2).cloned(),
+                    source: source_content,
+                },
+                for_node.loc.start.offset,
+                for_node.loc.end.offset,
+            );
             for var in &vars_added {
                 self.summary
                     .scopes
@@ -511,6 +833,483 @@ fn extract_identifiers_fast(expr: &str) -> Vec<&str> {
     }
 
     identifiers
+}
+
+/// Parse v-for expression into variables and source
+/// Fast path for simple patterns, OXC for complex destructuring
+/// e.g., "item in items" => (["item"], "items")
+/// e.g., "(item, index) in items" => (["item", "index"], "items")
+/// e.g., "({ id, name }, index) in items" => (["id", "name", "index"], "items")
+#[inline]
+fn parse_v_for_expression(expr: &str) -> (SmallVec<[CompactString; 3]>, CompactString) {
+    let bytes = expr.as_bytes();
+    let len = bytes.len();
+
+    // Find " in " or " of " separator using byte scan (avoid string search allocation)
+    let mut split_pos = None;
+    let mut i = 0;
+    while i + 4 <= len {
+        if bytes[i] == b' '
+            && ((bytes[i + 1] == b'i' && bytes[i + 2] == b'n')
+                || (bytes[i + 1] == b'o' && bytes[i + 2] == b'f'))
+            && bytes[i + 3] == b' '
+        {
+            split_pos = Some(i);
+            break;
+        }
+        i += 1;
+    }
+
+    let Some(pos) = split_pos else {
+        return (smallvec![], CompactString::new(expr.trim()));
+    };
+
+    let alias_part = expr[..pos].trim();
+    let source_part = expr[pos + 4..].trim();
+    let source = CompactString::new(source_part);
+
+    // Fast path: simple identifier (no parentheses, no destructuring)
+    if !alias_part.starts_with('(')
+        && !alias_part.contains('{')
+        && is_valid_identifier_fast(alias_part.as_bytes())
+    {
+        return (smallvec![CompactString::new(alias_part)], source);
+    }
+
+    // Fast path: simple tuple (item, index) without nested destructuring
+    if alias_part.starts_with('(') && alias_part.ends_with(')') && !alias_part.contains('{') {
+        let inner = &alias_part[1..alias_part.len() - 1];
+        let mut vars = SmallVec::new();
+        for part in inner.split(',') {
+            let part = part.trim();
+            if !part.is_empty() && is_valid_identifier_fast(part.as_bytes()) {
+                vars.push(CompactString::new(part));
+            }
+        }
+        if !vars.is_empty() {
+            return (vars, source);
+        }
+    }
+
+    // Complex case: use OXC parser for nested destructuring
+    parse_v_for_with_oxc(alias_part, source)
+}
+
+/// Parse complex v-for alias using OXC (for nested destructuring)
+#[cold]
+fn parse_v_for_with_oxc(
+    alias: &str,
+    source: CompactString,
+) -> (SmallVec<[CompactString; 3]>, CompactString) {
+    // Build pattern string with minimal allocation using a stack buffer
+    let mut buffer = [0u8; 256];
+    let prefix = b"let [";
+    let suffix = b"] = x";
+
+    let inner = if alias.starts_with('(') && alias.ends_with(')') {
+        &alias[1..alias.len() - 1]
+    } else {
+        alias
+    };
+
+    let total_len = prefix.len() + inner.len() + suffix.len();
+    if total_len > buffer.len() {
+        // Fallback to heap allocation for very long patterns
+        let pattern_str = format!("let [{}] = x", inner);
+        return parse_v_for_pattern(&pattern_str, source);
+    }
+
+    buffer[..prefix.len()].copy_from_slice(prefix);
+    buffer[prefix.len()..prefix.len() + inner.len()].copy_from_slice(inner.as_bytes());
+    buffer[prefix.len() + inner.len()..total_len].copy_from_slice(suffix);
+
+    // SAFETY: we only copy ASCII bytes
+    let pattern_str = unsafe { std::str::from_utf8_unchecked(&buffer[..total_len]) };
+    parse_v_for_pattern(pattern_str, source)
+}
+
+/// Parse v-for pattern using OXC
+fn parse_v_for_pattern(
+    pattern_str: &str,
+    source: CompactString,
+) -> (SmallVec<[CompactString; 3]>, CompactString) {
+    let allocator = Allocator::default();
+    let source_type = SourceType::default().with_typescript(true);
+    let ret = Parser::new(&allocator, pattern_str, source_type).parse();
+
+    let mut vars = SmallVec::new();
+
+    if let Some(oxc_ast::ast::Statement::VariableDeclaration(var_decl)) = ret.program.body.first() {
+        if let Some(declarator) = var_decl.declarations.first() {
+            extract_binding_names(&declarator.id, &mut vars);
+        }
+    }
+
+    (vars, source)
+}
+
+/// Extract binding names from a binding pattern (for v-for/v-slot)
+fn extract_binding_names(
+    pattern: &oxc_ast::ast::BindingPattern<'_>,
+    names: &mut SmallVec<[CompactString; 3]>,
+) {
+    match &pattern.kind {
+        BindingPatternKind::BindingIdentifier(id) => {
+            names.push(CompactString::new(id.name.as_str()));
+        }
+        BindingPatternKind::ObjectPattern(obj) => {
+            for prop in obj.properties.iter() {
+                extract_binding_names(&prop.value, names);
+            }
+            if let Some(rest) = &obj.rest {
+                extract_binding_names(&rest.argument, names);
+            }
+        }
+        BindingPatternKind::ArrayPattern(arr) => {
+            for elem in arr.elements.iter().flatten() {
+                extract_binding_names(elem, names);
+            }
+            if let Some(rest) = &arr.rest {
+                extract_binding_names(&rest.argument, names);
+            }
+        }
+        BindingPatternKind::AssignmentPattern(assign) => {
+            extract_binding_names(&assign.left, names);
+        }
+    }
+}
+
+/// Extract prop names from v-slot expression pattern
+/// Fast path for simple patterns, OXC for complex destructuring
+/// e.g., "{ item, index }" => ["item", "index"]
+/// e.g., "props" => ["props"]
+/// e.g., "{ item: myItem, index }" => ["myItem", "index"]
+/// e.g., "{ nested: { a, b } }" => ["a", "b"]
+#[inline]
+fn extract_slot_props(pattern: &str) -> SmallVec<[CompactString; 4]> {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return SmallVec::new();
+    }
+
+    let bytes = pattern.as_bytes();
+
+    // Fast path: simple identifier (no destructuring)
+    if bytes[0] != b'{' && bytes[0] != b'[' {
+        if is_valid_identifier_fast(bytes) {
+            return smallvec![CompactString::new(pattern)];
+        }
+        return SmallVec::new();
+    }
+
+    // Fast path: simple object destructuring { item, index } without nesting or renaming
+    if bytes[0] == b'{' && !pattern.contains(':') && !pattern.contains('{') {
+        // Count braces to ensure it's simple
+        let inner = &pattern[1..pattern.len().saturating_sub(1)];
+        let mut props = SmallVec::new();
+        for part in inner.split(',') {
+            let part = part.trim();
+            // Skip if it has default value assignment that's complex
+            let name = if let Some(eq_pos) = part.find('=') {
+                part[..eq_pos].trim()
+            } else {
+                part
+            };
+            if !name.is_empty() && is_valid_identifier_fast(name.as_bytes()) {
+                props.push(CompactString::new(name));
+            }
+        }
+        if !props.is_empty() {
+            return props;
+        }
+    }
+
+    // Complex case: use OXC parser for nested destructuring or renaming
+    extract_slot_props_with_oxc(pattern)
+}
+
+/// Parse complex slot props using OXC (for nested destructuring or renaming)
+#[cold]
+fn extract_slot_props_with_oxc(pattern: &str) -> SmallVec<[CompactString; 4]> {
+    // Build pattern string with minimal allocation using a stack buffer
+    let mut buffer = [0u8; 256];
+    let prefix = b"let ";
+    let suffix = b" = x";
+
+    let total_len = prefix.len() + pattern.len() + suffix.len();
+    if total_len > buffer.len() {
+        // Fallback to heap allocation for very long patterns
+        let pattern_str = format!("let {} = x", pattern);
+        return parse_slot_pattern(&pattern_str);
+    }
+
+    buffer[..prefix.len()].copy_from_slice(prefix);
+    buffer[prefix.len()..prefix.len() + pattern.len()].copy_from_slice(pattern.as_bytes());
+    buffer[prefix.len() + pattern.len()..total_len].copy_from_slice(suffix);
+
+    // SAFETY: we only copy ASCII bytes from the original pattern
+    let pattern_str = unsafe { std::str::from_utf8_unchecked(&buffer[..total_len]) };
+    parse_slot_pattern(pattern_str)
+}
+
+/// Parse slot pattern using OXC
+fn parse_slot_pattern(pattern_str: &str) -> SmallVec<[CompactString; 4]> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::default().with_typescript(true);
+    let ret = Parser::new(&allocator, pattern_str, source_type).parse();
+
+    let mut props = SmallVec::new();
+
+    if let Some(oxc_ast::ast::Statement::VariableDeclaration(var_decl)) = ret.program.body.first() {
+        if let Some(declarator) = var_decl.declarations.first() {
+            extract_slot_binding_names(&declarator.id, &mut props);
+        }
+    }
+
+    props
+}
+
+/// Extract binding names from a binding pattern (for v-slot props)
+fn extract_slot_binding_names(
+    pattern: &oxc_ast::ast::BindingPattern<'_>,
+    names: &mut SmallVec<[CompactString; 4]>,
+) {
+    match &pattern.kind {
+        BindingPatternKind::BindingIdentifier(id) => {
+            names.push(CompactString::new(id.name.as_str()));
+        }
+        BindingPatternKind::ObjectPattern(obj) => {
+            for prop in obj.properties.iter() {
+                extract_slot_binding_names(&prop.value, names);
+            }
+            if let Some(rest) = &obj.rest {
+                extract_slot_binding_names(&rest.argument, names);
+            }
+        }
+        BindingPatternKind::ArrayPattern(arr) => {
+            for elem in arr.elements.iter().flatten() {
+                extract_slot_binding_names(elem, names);
+            }
+            if let Some(rest) = &arr.rest {
+                extract_slot_binding_names(&rest.argument, names);
+            }
+        }
+        BindingPatternKind::AssignmentPattern(assign) => {
+            extract_slot_binding_names(&assign.left, names);
+        }
+    }
+}
+
+/// Extract parameters from inline arrow function or function expression (optimized)
+/// e.g., "(e) => handleClick(e)" => Some(["e"])
+/// e.g., "(item, index) => ..." => Some(["item", "index"])
+/// e.g., "e => handleClick(e)" => Some(["e"])
+/// e.g., "function(e) { ... }" => Some(["e"])
+/// e.g., "handleClick" => None (not an inline function)
+#[inline]
+fn extract_inline_callback_params(expr: &str) -> Option<vize_carton::SmallVec<[CompactString; 4]>> {
+    let bytes = expr.as_bytes();
+    let len = bytes.len();
+    if len == 0 {
+        return None;
+    }
+
+    // Skip leading whitespace
+    let mut i = 0;
+    while i < len && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= len {
+        return None;
+    }
+
+    // Fast path: check for arrow "=>" using memchr-like scan
+    let arrow_pos = find_arrow(bytes, i);
+
+    if let Some(arrow_idx) = arrow_pos {
+        // Extract before arrow (trimmed)
+        let mut end = arrow_idx;
+        while end > i && bytes[end - 1].is_ascii_whitespace() {
+            end -= 1;
+        }
+        if end <= i {
+            return None;
+        }
+
+        let before_bytes = &bytes[i..end];
+
+        // Check for async prefix
+        let (param_start, param_end) = if before_bytes.starts_with(b"async")
+            && before_bytes.len() > 5
+            && before_bytes[5].is_ascii_whitespace()
+        {
+            let mut s = 5;
+            while s < before_bytes.len() && before_bytes[s].is_ascii_whitespace() {
+                s += 1;
+            }
+            (i + s, end)
+        } else {
+            (i, end)
+        };
+
+        let param_bytes = &bytes[param_start..param_end];
+
+        // (params) => pattern
+        if param_bytes.first() == Some(&b'(') && param_bytes.last() == Some(&b')') {
+            let inner = &expr[param_start + 1..param_end - 1];
+            let inner_trimmed = inner.trim();
+            if inner_trimmed.is_empty() {
+                return Some(vize_carton::SmallVec::new());
+            }
+            return Some(extract_param_list_fast(inner_trimmed));
+        }
+
+        // Single param: e =>
+        let param = &expr[param_start..param_end];
+        if is_valid_identifier_fast(param.as_bytes()) {
+            let mut result = vize_carton::SmallVec::new();
+            result.push(CompactString::new(param));
+            return Some(result);
+        }
+    }
+
+    // Check for function expression: function(params) { ... }
+    if bytes[i..].starts_with(b"function") {
+        let fn_end = i + 8;
+        // Find opening paren
+        let mut paren_start = fn_end;
+        while paren_start < len && bytes[paren_start] != b'(' {
+            paren_start += 1;
+        }
+        if paren_start >= len {
+            return None;
+        }
+        // Find closing paren
+        let mut paren_end = paren_start + 1;
+        let mut depth = 1;
+        while paren_end < len && depth > 0 {
+            match bytes[paren_end] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            paren_end += 1;
+        }
+        if depth == 0 {
+            let inner = &expr[paren_start + 1..paren_end - 1];
+            let inner_trimmed = inner.trim();
+            if inner_trimmed.is_empty() {
+                return Some(vize_carton::SmallVec::new());
+            }
+            return Some(extract_param_list_fast(inner_trimmed));
+        }
+    }
+
+    None
+}
+
+/// Find arrow "=>" position in bytes
+#[inline]
+fn find_arrow(bytes: &[u8], start: usize) -> Option<usize> {
+    let len = bytes.len();
+    if len < start + 2 {
+        return None;
+    }
+    let mut i = start;
+    while i < len - 1 {
+        if bytes[i] == b'=' && bytes[i + 1] == b'>' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Fast identifier validation using bytes
+#[inline]
+fn is_valid_identifier_fast(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let first = bytes[0];
+    if !first.is_ascii_alphabetic() && first != b'_' && first != b'$' {
+        return false;
+    }
+    bytes[1..]
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+}
+
+/// Extract parameter list from comma-separated string (optimized)
+#[inline]
+fn extract_param_list_fast(params: &str) -> vize_carton::SmallVec<[CompactString; 4]> {
+    let bytes = params.as_bytes();
+    let len = bytes.len();
+    let mut result = vize_carton::SmallVec::new();
+    let mut i = 0;
+
+    while i < len {
+        // Skip whitespace
+        while i < len && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+
+        // Skip rest parameter prefix (...)
+        if i + 2 < len && bytes[i] == b'.' && bytes[i + 1] == b'.' && bytes[i + 2] == b'.' {
+            i += 3;
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+        }
+
+        // Skip destructuring patterns
+        if i < len && (bytes[i] == b'{' || bytes[i] == b'[') {
+            let open = bytes[i];
+            let close = if open == b'{' { b'}' } else { b']' };
+            let mut depth = 1;
+            i += 1;
+            while i < len && depth > 0 {
+                if bytes[i] == open {
+                    depth += 1;
+                } else if bytes[i] == close {
+                    depth -= 1;
+                }
+                i += 1;
+            }
+            // Skip to comma
+            while i < len && bytes[i] != b',' {
+                i += 1;
+            }
+            if i < len {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Extract identifier
+        let ident_start = i;
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+        {
+            i += 1;
+        }
+
+        if i > ident_start {
+            result.push(CompactString::new(&params[ident_start..i]));
+        }
+
+        // Skip to next comma (past : type annotation, = default value)
+        while i < len && bytes[i] != b',' {
+            i += 1;
+        }
+        if i < len {
+            i += 1; // Skip comma
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]

@@ -97,10 +97,30 @@ const mappedItems = computed(() => items.value.map((item) => item * 2))
     <div class="actions">
       <button @click="increment">+1</button>
       <button @click="reset">Reset</button>
+      <button @click="(e) => console.log('clicked', e)">Log Event</button>
     </div>
+
+    <!-- v-for scope example -->
     <ul>
-      <li v-for="item in evenItems" :key="item">{{ item }}</li>
+      <li v-for="(item, index) in evenItems" :key="item">
+        {{ index }}: {{ item }}
+      </li>
     </ul>
+
+    <!-- scoped slot example -->
+    <MyList v-slot="{ item, selected }">
+      <span :class="{ active: selected }">{{ item.name }}</span>
+    </MyList>
+
+    <!-- named scoped slot -->
+    <DataTable>
+      <template #header="{ columns }">
+        <th v-for="col in columns" :key="col.id">{{ col.label }}</th>
+      </template>
+      <template #row="{ row, index }">
+        <td>{{ index }}: {{ row.name }}</td>
+      </template>
+    </DataTable>
   </div>
 </template>
 

@@ -423,52 +423,39 @@ export async function loadWasm(): Promise<WasmModule> {
           interface RawWasmScope {
             id: number;
             kind: string;
-            parentId?: number;
+            kindStr?: string;
+            parentIds?: number[];
             start: number;
             end: number;
-            bindings: Array<{ name: string; type: string; offset: number }>;
+            bindings: string[];  // WASM returns binding names as string array
+            depth?: number;
+            isTemplateScope?: boolean;
           }
 
           const rawScopes: RawWasmScope[] = rawResult.scopes || [];
 
-          // Build children map
+          // Build children map from parentIds
           const childrenMap = new Map<number, number[]>();
           for (const scope of rawScopes) {
-            if (scope.parentId !== undefined) {
-              const existing = childrenMap.get(scope.parentId) || [];
+            const parentIds = scope.parentIds || [];
+            for (const parentId of parentIds) {
+              const existing = childrenMap.get(parentId) || [];
               existing.push(scope.id);
-              childrenMap.set(scope.parentId, existing);
+              childrenMap.set(parentId, existing);
             }
           }
 
-          // Calculate depth for each scope
-          const depthMap = new Map<number, number>();
-          const calculateDepth = (scopeId: number): number => {
-            if (depthMap.has(scopeId)) return depthMap.get(scopeId)!;
-            const scope = rawScopes.find(s => s.id === scopeId);
-            if (!scope || scope.parentId === undefined) {
-              depthMap.set(scopeId, 0);
-              return 0;
-            }
-            const depth = calculateDepth(scope.parentId) + 1;
-            depthMap.set(scopeId, depth);
-            return depth;
-          };
-          for (const scope of rawScopes) {
-            calculateDepth(scope.id);
-          }
-
-          // Convert to ScopeDisplay format
+          // Convert to ScopeDisplay format (depth is already provided by WASM)
           const scopes: ScopeDisplay[] = rawScopes.map(scope => ({
             id: scope.id,
-            parentIds: scope.parentId !== undefined ? [scope.parentId] : [],
+            parentIds: scope.parentIds || [],
             kind: scope.kind as ScopeKind,
-            kindStr: scope.kind,
+            kindStr: scope.kindStr || scope.kind,
             start: scope.start,
             end: scope.end,
-            bindings: scope.bindings.map(b => b.name),
+            bindings: scope.bindings,  // Already string array
             children: childrenMap.get(scope.id) || [],
-            depth: depthMap.get(scope.id) || 0,
+            depth: scope.depth || 0,
           }));
 
           // Transform bindings to match BindingDisplay interface

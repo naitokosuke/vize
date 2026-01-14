@@ -274,11 +274,16 @@ const SCOPE_CLASS_MAP: Record<string, string> = {
   'server': 'scope-decoration-server',
   'client': 'scope-decoration-client',
   'vfor': 'scope-decoration-vFor',
+  'v-for': 'scope-decoration-vFor',
   'vslot': 'scope-decoration-vSlot',
+  'v-slot': 'scope-decoration-vSlot',
   'function': 'scope-decoration-function',
   'arrowfunction': 'scope-decoration-function',
-  'block': 'scope-decoration-function',
+  'block': 'scope-decoration-block',
   'mod': 'scope-decoration-mod',
+  'closure': 'scope-decoration-closure',
+  'event': 'scope-decoration-event',
+  'callback': 'scope-decoration-callback',
 };
 
 // Get scope decoration class based on kind
@@ -354,7 +359,13 @@ const RULER_COLOR_MAP: Record<string, string> = {
   'server': '#3b82f6a0',
   'universal': '#8b5cf640',
   'vfor': '#a78bfa40',
+  'v-for': '#a78bfa40',
   'vslot': '#f472b640',
+  'v-slot': '#f472b640',
+  'closure': '#fbbf2440',
+  'block': '#94a3b830',
+  'event': '#f472b640',
+  'callback': '#fb923c40',
 };
 
 // Get overview ruler color based on scope kind
@@ -426,6 +437,26 @@ function getOverviewRulerColor(kind: string): string {
 .scope-decoration-function {
   background: rgba(45, 212, 191, 0.15);
   border-left: 3px solid #2dd4bf;
+}
+
+.scope-decoration-closure {
+  background: rgba(251, 191, 36, 0.15);
+  border-left: 3px solid #fbbf24;
+}
+
+.scope-decoration-block {
+  background: rgba(148, 163, 184, 0.1);
+  border-left: 3px solid #94a3b8;
+}
+
+.scope-decoration-event {
+  background: rgba(244, 114, 182, 0.15);
+  border-left: 3px solid #f472b6;
+}
+
+.scope-decoration-callback {
+  background: rgba(251, 146, 60, 0.15);
+  border-left: 3px solid #fb923c;
 }
 
 .scope-decoration-computed {

@@ -109,7 +109,7 @@ impl ScopeKind {
     #[inline]
     pub const fn display_name(&self) -> &'static str {
         match self {
-            Self::Module => "mod",
+            Self::Module => "module",
             Self::Function => "fn",
             Self::Block => "block",
             Self::VFor => "v-for",
@@ -135,7 +135,7 @@ impl ScopeKind {
     #[inline]
     pub const fn to_display(&self) -> &'static str {
         match self {
-            Self::Module => "mod",
+            Self::Module => "module",
             Self::Function => "fn",
             Self::Block => "block",
             Self::VFor => "v-for",
