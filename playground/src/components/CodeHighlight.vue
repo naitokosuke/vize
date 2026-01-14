@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
 import { createHighlighter, type Highlighter, type ThemeRegistration } from 'shiki';
 
 const props = defineProps<{
@@ -32,7 +32,7 @@ const vizeTheme: ThemeRegistration = {
   ],
 };
 
-const highlightedCode = ref('');
+const highlightedLines = ref<string[]>([]);
 let highlighter: Highlighter | null = null;
 
 async function initHighlighter() {
@@ -47,12 +47,33 @@ async function initHighlighter() {
 
 async function highlight() {
   const hl = await initHighlighter();
-  const html = hl.codeToHtml(props.code, {
+  const tokens = hl.codeToTokens(props.code, {
     lang: props.language,
     theme: 'vize-dark',
   });
-  highlightedCode.value = html;
+
+  let lines = tokens.tokens;
+  // Remove trailing empty line if present
+  if (lines.length > 0 && lines[lines.length - 1].length === 0) {
+    lines = lines.slice(0, -1);
+  }
+
+  // Build HTML for each line
+  highlightedLines.value = lines.map(lineTokens => {
+    if (lineTokens.length === 0) {
+      return '&nbsp;';
+    }
+    return lineTokens.map(token => {
+      const escaped = token.content
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<span style="color:${token.color}">${escaped}</span>`;
+    }).join('');
+  });
 }
+
+const lineCount = computed(() => highlightedLines.value.length);
 
 onMounted(highlight);
 watch(() => [props.code, props.language], highlight);
@@ -60,55 +81,71 @@ watch(() => [props.code, props.language], highlight);
 
 <template>
   <div class="code-highlight" :class="{ 'with-line-numbers': showLineNumbers }">
-    <div v-html="highlightedCode"></div>
+    <div v-if="showLineNumbers" class="line-numbers">
+      <span v-for="i in lineCount" :key="i" class="line-number">{{ i }}</span>
+    </div>
+    <div class="code-content">
+      <div
+        v-for="(line, index) in highlightedLines"
+        :key="index"
+        class="code-line"
+        v-html="line"
+      ></div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .code-highlight {
+  display: flex;
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
-  line-height: 1;
-  border-radius: 12px;
+  line-height: 20px;
+  border-radius: 4px;
   overflow: auto;
+  background: #1a1b21;
 }
 
-.code-highlight :deep(pre) {
-  margin: 0;
-  padding: 16px !important;
-  background: #1a1b21 !important;
-  border-radius: 12px;
-  overflow: auto;
-  white-space: pre;
-  line-height: 1 !important;
-}
-
-.code-highlight :deep(code) {
-  font-family: inherit;
-  line-height: 1 !important;
-}
-
-.code-highlight :deep(.line) {
-  display: block;
-}
-
-.code-highlight.with-line-numbers :deep(code) {
-  counter-reset: line;
-}
-
-.code-highlight.with-line-numbers :deep(.line) {
-  display: block;
-}
-
-.code-highlight.with-line-numbers :deep(.line::before) {
-  content: counter(line);
-  counter-increment: line;
-  display: inline-block;
-  width: 30px;
-  color: #71717a;
+.line-numbers {
+  display: flex;
+  flex-direction: column;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
   user-select: none;
+  flex-shrink: 0;
+  position: sticky;
+  left: 0;
+}
+
+.line-number {
+  display: block;
+  padding: 0 12px;
   text-align: right;
-  margin-right: 16px;
-  font-size: 12px;
+  color: #71717a;
+  line-height: 20px;
+  height: 20px;
+  box-sizing: border-box;
+}
+
+.code-content {
+  flex: 1;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  padding-left: 16px;
+  padding-right: 16px;
+  overflow-x: auto;
+}
+
+.code-line {
+  white-space: pre;
+  line-height: 20px;
+  height: 20px;
+  box-sizing: border-box;
+}
+
+.code-line :deep(span) {
+  line-height: inherit;
 }
 </style>

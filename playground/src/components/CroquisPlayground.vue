@@ -456,7 +456,12 @@ function getVirLineType(line: string): string {
 // Parse VIR text into tokenized lines
 const virLines = computed((): VirLine[] => {
   if (!virText.value) return [];
-  return virText.value.split('\n').map((line, index) => ({
+  const lines = virText.value.split('\n');
+  // Remove trailing empty line if present
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  return lines.map((line, index) => ({
     tokens: tokenizeVirLine(line),
     index,
     lineType: getVirLineType(line),
@@ -1521,7 +1526,8 @@ function getScopeColorClass(kind: string): string {
 .vir-content {
   flex: 1;
   min-height: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   margin: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
@@ -1539,7 +1545,6 @@ function getScopeColorClass(kind: string): string {
   background: rgba(0, 0, 0, 0.15);
   border-right: 1px solid var(--border-primary);
   user-select: none;
-  flex-shrink: 0;
   position: sticky;
   left: 0;
   z-index: 1;
@@ -1549,9 +1554,12 @@ function getScopeColorClass(kind: string): string {
   padding: 0 0.75rem;
   text-align: right;
   color: var(--text-muted);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   min-width: 2.5rem;
   opacity: 0.6;
+  height: 1.6em;
+  line-height: 1.6;
+  display: block;
 }
 
 .vir-code {
@@ -1561,7 +1569,8 @@ function getScopeColorClass(kind: string): string {
 
 .vir-line {
   white-space: pre;
-  min-height: 1.3em;
+  height: 1.6em;
+  line-height: 1.6;
 }
 
 /* VIR Token Types - Subtle syntax highlighting */
