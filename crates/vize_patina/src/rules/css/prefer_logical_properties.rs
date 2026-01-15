@@ -93,17 +93,15 @@ impl PreferLogicalProperties {
         };
 
         // Report at offset since PropertyId doesn't provide precise location
+        let _ = (physical, logical); // suppress unused warnings
         result.add_diagnostic(
             LintDiagnostic::warn(
                 META.name,
-                format!(
-                    "Consider using '{}' instead of '{}' for better RTL support",
-                    logical, physical
-                ),
+                "Consider using logical properties for better RTL support",
                 offset as u32,
                 (offset + physical.len()) as u32,
             )
-            .with_help(format!("Replace '{}' with '{}'", physical, logical)),
+            .with_help("Use logical properties like margin-inline-start instead of margin-left"),
         );
     }
 }

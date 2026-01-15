@@ -99,10 +99,7 @@ impl Rule for NoUnsafeUrl {
         };
 
         ctx.warn_with_help(
-            format!(
-                "Dynamic :{} binding may be vulnerable to XSS via javascript: protocol",
-                attr_name
-            ),
+            "Dynamic URL binding may be vulnerable to XSS via javascript: protocol",
             &directive.loc,
             help_message,
         );

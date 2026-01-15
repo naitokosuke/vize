@@ -73,10 +73,7 @@ impl NoIdSelectors {
                 result.add_diagnostic(
                     LintDiagnostic::warn(
                         META.name,
-                        format!(
-                            "Avoid ID selector '#{}' - use class selectors for better reusability",
-                            id.0
-                        ),
+                        "Avoid ID selectors - use class selectors for better reusability",
                         offset as u32,
                         (offset + id.0.len() + 1) as u32,
                     )

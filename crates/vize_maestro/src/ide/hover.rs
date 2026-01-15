@@ -5,8 +5,11 @@
 //! - Vue directives
 //! - Script bindings and imports
 //! - CSS properties and Vue-specific selectors
+//! - TypeScript type information from croquis analysis
 
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Range};
+use vize_croquis::{Analyzer, AnalyzerOptions};
+use vize_relief::BindingType;
 
 use super::IdeContext;
 use crate::virtual_code::BlockType;
@@ -36,6 +39,11 @@ impl HoverService {
 
         // Check for Vue directives
         if let Some(hover) = Self::hover_directive(&word) {
+            return Some(hover);
+        }
+
+        // Try to get TypeScript type information from croquis analysis
+        if let Some(hover) = Self::hover_ts_binding(ctx, &word) {
             return Some(hover);
         }
 
@@ -83,6 +91,101 @@ impl HoverService {
         })
     }
 
+    /// Get hover for TypeScript binding using croquis analysis.
+    fn hover_ts_binding(ctx: &IdeContext, word: &str) -> Option<Hover> {
+        // Parse SFC to get script content
+        let options = vize_atelier_sfc::SfcParseOptions {
+            filename: ctx.uri.path().to_string(),
+            ..Default::default()
+        };
+
+        let descriptor = vize_atelier_sfc::parse_sfc(&ctx.content, options).ok()?;
+
+        // Create analyzer and analyze script
+        let mut analyzer = Analyzer::with_options(AnalyzerOptions::full());
+
+        if let Some(ref script_setup) = descriptor.script_setup {
+            analyzer.analyze_script_setup(&script_setup.content);
+        } else if let Some(ref script) = descriptor.script {
+            analyzer.analyze_script_plain(&script.content);
+        }
+
+        // Analyze template if present
+        if let Some(ref template) = descriptor.template {
+            let allocator = vize_carton::Bump::new();
+            let (root, _) = vize_armature::parse(&allocator, &template.content);
+            analyzer.analyze_template(&root);
+        }
+
+        let summary = analyzer.finish();
+
+        // Look up the binding in the analysis summary
+        let binding_type = summary.get_binding_type(word)?;
+
+        // Format the hover content
+        let ts_type = Self::binding_type_to_ts_display(binding_type);
+        let kind_desc = Self::binding_type_to_description(binding_type);
+
+        let value = format!(
+            "```typescript\n{}: {}\n```\n\n{}\n\n*Source: `<script setup>`*",
+            word, ts_type, kind_desc
+        );
+
+        Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            }),
+            range: None,
+        })
+    }
+
+    /// Convert BindingType to TypeScript type display string.
+    fn binding_type_to_ts_display(binding_type: BindingType) -> &'static str {
+        match binding_type {
+            BindingType::SetupRef => "Ref<unknown>",
+            BindingType::SetupMaybeRef => "MaybeRef<unknown>",
+            BindingType::SetupReactiveConst => "Reactive<unknown>",
+            BindingType::SetupConst => "const",
+            BindingType::SetupLet => "let",
+            BindingType::Props => "Props",
+            BindingType::PropsAliased => "Props (aliased)",
+            BindingType::Data => "data",
+            BindingType::Options => "options",
+            BindingType::LiteralConst => "literal const",
+            BindingType::JsGlobalUniversal => "global (universal)",
+            BindingType::JsGlobalBrowser => "global (browser)",
+            BindingType::JsGlobalNode => "global (node)",
+            BindingType::JsGlobalDeno => "global (deno)",
+            BindingType::JsGlobalBun => "global (bun)",
+            BindingType::VueGlobal => "Vue global",
+            BindingType::ExternalModule => "imported module",
+        }
+    }
+
+    /// Convert BindingType to human-readable description.
+    fn binding_type_to_description(binding_type: BindingType) -> &'static str {
+        match binding_type {
+            BindingType::SetupRef => "Reactive reference created with `ref()`. Access `.value` in script, auto-unwrapped in template.",
+            BindingType::SetupMaybeRef => "Value that may be a ref. Use `unref()` or `toValue()` to access in script.",
+            BindingType::SetupReactiveConst => "Reactive object created with `reactive()`. Properties are reactive.",
+            BindingType::SetupConst => "Constant binding from script setup. Non-reactive unless wrapped.",
+            BindingType::SetupLet => "Mutable binding from script setup. Changes won't trigger reactivity.",
+            BindingType::Props => "Component prop. Read-only in the component.",
+            BindingType::PropsAliased => "Destructured prop with alias. Read-only.",
+            BindingType::Data => "Reactive data from Options API `data()` function.",
+            BindingType::Options => "Binding from Options API (methods, computed, etc.).",
+            BindingType::LiteralConst => "Literal constant value, hoisted for optimization.",
+            BindingType::JsGlobalUniversal => "JavaScript global available in all environments.",
+            BindingType::JsGlobalBrowser => "Browser-specific global (window, document, etc.).",
+            BindingType::JsGlobalNode => "Node.js-specific global (process, Buffer, etc.).",
+            BindingType::JsGlobalDeno => "Deno-specific global.",
+            BindingType::JsGlobalBun => "Bun-specific global.",
+            BindingType::VueGlobal => "Vue template global ($slots, $emit, $attrs, etc.).",
+            BindingType::ExternalModule => "Imported from external module.",
+        }
+    }
+
     /// Get hover for script context.
     fn hover_script(ctx: &IdeContext, is_setup: bool) -> Option<Hover> {
         let word = Self::get_word_at_offset(&ctx.content, ctx.offset);
@@ -103,7 +206,64 @@ impl HoverService {
             }
         }
 
+        // Try to get TypeScript type information from croquis analysis
+        if let Some(hover) = Self::hover_ts_binding_in_script(ctx, &word) {
+            return Some(hover);
+        }
+
         None
+    }
+
+    /// Get hover for TypeScript binding in script using croquis analysis.
+    fn hover_ts_binding_in_script(ctx: &IdeContext, word: &str) -> Option<Hover> {
+        // Parse SFC to get script content
+        let options = vize_atelier_sfc::SfcParseOptions {
+            filename: ctx.uri.path().to_string(),
+            ..Default::default()
+        };
+
+        let descriptor = vize_atelier_sfc::parse_sfc(&ctx.content, options).ok()?;
+
+        // Create analyzer and analyze script
+        let mut analyzer = Analyzer::with_options(AnalyzerOptions::full());
+
+        if let Some(ref script_setup) = descriptor.script_setup {
+            analyzer.analyze_script_setup(&script_setup.content);
+        } else if let Some(ref script) = descriptor.script {
+            analyzer.analyze_script_plain(&script.content);
+        }
+
+        let summary = analyzer.finish();
+
+        // Look up the binding in the analysis summary
+        let binding_type = summary.get_binding_type(word)?;
+
+        // Format the hover content with reactivity hints for script context
+        let ts_type = Self::binding_type_to_ts_display(binding_type);
+        let kind_desc = Self::binding_type_to_description(binding_type);
+
+        // Add .value hint for refs in script
+        let value_hint = if summary.needs_value_in_script(word) {
+            format!(
+                "\n\n**Tip:** Use `{}.value` to access the value in script.",
+                word
+            )
+        } else {
+            String::new()
+        };
+
+        let value = format!(
+            "```typescript\n{}: {}\n```\n\n{}{}",
+            word, ts_type, kind_desc, value_hint
+        );
+
+        Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            }),
+            range: None,
+        })
     }
 
     /// Get hover for style context.
@@ -486,5 +646,36 @@ mod tests {
         } else {
             panic!("Expected Markup content");
         }
+    }
+
+    #[test]
+    fn test_binding_type_to_ts_display() {
+        assert_eq!(
+            HoverService::binding_type_to_ts_display(BindingType::SetupRef),
+            "Ref<unknown>"
+        );
+        assert_eq!(
+            HoverService::binding_type_to_ts_display(BindingType::SetupReactiveConst),
+            "Reactive<unknown>"
+        );
+        assert_eq!(
+            HoverService::binding_type_to_ts_display(BindingType::Props),
+            "Props"
+        );
+        assert_eq!(
+            HoverService::binding_type_to_ts_display(BindingType::SetupConst),
+            "const"
+        );
+    }
+
+    #[test]
+    fn test_binding_type_to_description() {
+        let desc = HoverService::binding_type_to_description(BindingType::SetupRef);
+        assert!(desc.contains("ref()"));
+        assert!(desc.contains(".value"));
+
+        let desc = HoverService::binding_type_to_description(BindingType::Props);
+        assert!(desc.contains("prop"));
+        assert!(desc.contains("Read-only"));
     }
 }

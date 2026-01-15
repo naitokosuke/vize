@@ -241,10 +241,11 @@ impl Analyzer {
             TemplateChildNode::For(for_node) => self.visit_for(for_node, scope_vars),
             TemplateChildNode::Interpolation(interp) => {
                 if self.options.detect_undefined && self.script_analyzed {
+                    // Use the content's loc, not the interpolation's loc (which includes {{ }})
                     self.check_expression_refs(
                         &interp.content,
                         scope_vars,
-                        interp.loc.start.offset,
+                        interp.content.loc().start.offset,
                     );
                 }
             }
@@ -692,14 +693,14 @@ impl Analyzer {
         &mut self,
         expr: &ExpressionNode<'_>,
         scope_vars: &[CompactString],
-        offset: u32,
+        base_offset: u32,
     ) {
         let content = match expr {
             ExpressionNode::Simple(s) => s.content.as_str(),
             ExpressionNode::Compound(c) => c.loc.source.as_str(),
         };
 
-        // Fast identifier extraction
+        // Fast identifier extraction with position tracking
         for ident in extract_identifiers_fast(content) {
             // Check if defined
             let is_defined = scope_vars.iter().any(|v| v.as_str() == ident)
@@ -708,9 +709,11 @@ impl Analyzer {
                 || is_keyword(ident);
 
             if !is_defined {
+                // Find the identifier's position within content
+                let ident_offset_in_content = content.find(ident).unwrap_or(0) as u32;
                 self.summary.undefined_refs.push(UndefinedRef {
                     name: CompactString::new(ident),
-                    offset,
+                    offset: base_offset + ident_offset_in_content,
                     context: CompactString::new("template expression"),
                 });
             }

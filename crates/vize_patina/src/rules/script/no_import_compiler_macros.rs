@@ -94,16 +94,15 @@ impl ScriptRule for NoImportCompilerMacros {
                             LintDiagnostic::error(
                                 META.name,
                                 format!(
-                                    "Do not import compiler macro '{}' - it is automatically available in <script setup>",
+                                    "Do not import '{}' - compiler macros are automatically available in <script setup>",
                                     macro_name
                                 ),
                                 (offset + abs_pos + macro_pos) as u32,
                                 (offset + abs_pos + macro_pos + macro_name.len()) as u32,
                             )
-                            .with_help(format!(
-                                "Remove '{}' from the import statement. Compiler macros are auto-imported.",
-                                macro_name
-                            )),
+                            .with_help(
+                                "Remove the macro from the import statement. Compiler macros are auto-imported.",
+                            ),
                         );
                     }
                 }

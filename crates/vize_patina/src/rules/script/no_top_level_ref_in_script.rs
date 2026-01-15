@@ -99,7 +99,7 @@ impl NoTopLevelRefInScript {
         bytes: &[u8],
         offset: usize,
         pattern: &str,
-        name: &str,
+        _name: &str,
         result: &mut ScriptLintResult,
     ) {
         let finder = memmem::Finder::new(pattern.as_bytes());
@@ -154,10 +154,7 @@ impl NoTopLevelRefInScript {
                     result.add_diagnostic(
                         LintDiagnostic::error(
                             META.name,
-                            format!(
-                                "Top-level {}() in <script> can cause Cross-Request State Pollution in SSR",
-                                name
-                            ),
+                            "Top-level reactive state in <script> can cause Cross-Request State Pollution in SSR",
                             (offset + abs_pos) as u32,
                             (offset + abs_pos + pattern.len()) as u32,
                         )

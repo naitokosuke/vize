@@ -74,7 +74,7 @@ impl Rule for NoPreprocessorLang {
                     None
                 };
 
-                if let Some((preprocessor_name, lang_attr)) = preprocessor {
+                if let Some((_preprocessor_name, lang_attr)) = preprocessor {
                     // Find position of lang attribute for fix
                     let lang_pos = tag_content.find(lang_attr).unwrap_or(0);
                     let lang_start = abs_pos + lang_pos;
@@ -82,17 +82,14 @@ impl Rule for NoPreprocessorLang {
 
                     // Create fix to remove the lang attribute
                     let fix = Fix::new(
-                        format!("Remove {} preprocessor", preprocessor_name),
+                        "Remove CSS preprocessor",
                         TextEdit::delete(lang_start as u32, (lang_end + 1) as u32), // +1 for trailing space
                     );
 
                     ctx.report(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Consider using modern CSS instead of {} preprocessor",
-                                preprocessor_name
-                            ),
+                            "Consider using modern CSS instead of preprocessor",
                             abs_pos as u32,
                             (abs_pos + tag_end + 1) as u32,
                         )

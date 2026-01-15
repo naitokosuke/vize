@@ -136,16 +136,12 @@ impl ScriptRule for NoDeepDestructureInProps {
                     result.add_diagnostic(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Avoid deeply nested destructuring in defineProps (max depth: {})",
-                                self.max_depth
-                            ),
+                            "Avoid deeply nested destructuring in defineProps",
                             (offset + pattern_start) as u32,
                             (offset + pattern_start + pattern.len()) as u32,
                         )
                         .with_help(
-                            "Use simple destructuring and access nested properties via computed or direct prop access: \
-                             `const props = defineProps<...>(); const nested = computed(() => props.parent.child)`",
+                            "Use simple destructuring and access nested properties via computed or direct prop access",
                         ),
                     );
                 }

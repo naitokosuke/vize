@@ -210,12 +210,19 @@ impl<'a> Parser<'a> {
 
     /// Process interpolation
     fn on_interpolation_impl(&mut self, start: usize, end: usize) {
-        let content = self.get_source(start, end).trim();
+        let raw_content = self.get_source(start, end);
+        let content = raw_content.trim();
+
+        // Calculate trimmed positions for accurate source mapping
+        let leading_ws = raw_content.len() - raw_content.trim_start().len();
+        let trimmed_start = start + leading_ws;
+        let trimmed_end = trimmed_start + content.len();
+
         let delim_len = self.options.delimiters.0.len();
         let full_start = start - delim_len;
         let full_end = end + self.options.delimiters.1.len();
         let loc = self.create_loc(full_start, full_end);
-        let inner_loc = self.create_loc(start, end);
+        let inner_loc = self.create_loc(trimmed_start, trimmed_end);
 
         // Create expression node
         let expr = SimpleExpressionNode::new(content, false, inner_loc);

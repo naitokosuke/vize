@@ -409,4 +409,65 @@ const foo = 'bar';
             );
         }
     }
+
+    #[test]
+    fn test_lint_sfc_offset_line_conversion() {
+        use crate::telegraph::LspEmitter;
+
+        let linter = Linter::new();
+        let sfc = r#"<script setup lang="ts">
+const foo = 'bar';
+</script>
+
+<template>
+  <ul><li v-for="item in items">{{ item }}</li></ul>
+</template>
+"#;
+        let result = linter.lint_sfc(sfc, "test.vue");
+        assert!(result.error_count > 0);
+
+        // Debug: show template start
+        let template_start = sfc.find("<template>").unwrap();
+        eprintln!("Template <template> starts at byte: {}", template_start);
+
+        // Debug: show content start (after <template>)
+        let content_start = sfc.find("<template>").unwrap() + "<template>\n".len();
+        eprintln!("Template content starts at byte: {}", content_start);
+
+        // Debug: show diagnostics
+        for (i, diag) in result.diagnostics.iter().enumerate() {
+            eprintln!(
+                "Diag[{}] rule={}, start={}, end={}",
+                i, diag.rule_name, diag.start, diag.end
+            );
+
+            // Count newlines before start to get line number
+            let before = &sfc[..diag.start as usize];
+            let line_count = before.matches('\n').count();
+            eprintln!("  -> Line (0-indexed): {}", line_count);
+        }
+
+        // Test LspEmitter conversion
+        let lsp_diags = LspEmitter::to_lsp_diagnostics_with_source(&result, sfc);
+        for (i, lsp) in lsp_diags.iter().enumerate() {
+            eprintln!(
+                "LSP[{}] line={}, col={}",
+                i, lsp.range.start.line, lsp.range.start.character
+            );
+        }
+
+        // Expected: line should be around 5 (0-indexed) for template content
+        // Line 0: <script setup lang="ts">
+        // Line 1: const foo = 'bar';
+        // Line 2: </script>
+        // Line 3: (empty)
+        // Line 4: <template>
+        // Line 5:   <ul>...
+        if let Some(lsp) = lsp_diags.first() {
+            assert_eq!(
+                lsp.range.start.line, 5,
+                "First diagnostic should be on line 5 (0-indexed)"
+            );
+        }
+    }
 }

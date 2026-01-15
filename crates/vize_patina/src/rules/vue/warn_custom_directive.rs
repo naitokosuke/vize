@@ -74,11 +74,7 @@ impl Rule for WarnCustomDirective {
                     name
                 ),
                 &directive.loc,
-                format!(
-                    "Register the directive globally with `app.directive('{}', {{ ... }})` \
-                     or locally in the component's `directives` option",
-                    name
-                ),
+                "Register the directive globally or locally in the component's `directives` option",
             );
         }
     }

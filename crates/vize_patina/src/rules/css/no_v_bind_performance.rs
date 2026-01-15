@@ -53,24 +53,10 @@ impl CssRule for NoVBindPerformance {
             let start = (offset + absolute_pos) as u32;
             let end = (offset + end_pos.unwrap_or(absolute_pos + 7)) as u32;
 
-            // Extract the expression for better message
-            let expr = if let Some(ep) = end_pos {
-                &source[absolute_pos + 7..ep - 1]
-            } else {
-                ""
-            };
-
             result.add_diagnostic(
                 LintDiagnostic::warn(
                     META.name,
-                    format!(
-                        "v-bind({}) has runtime performance cost",
-                        if expr.len() > 20 {
-                            format!("{}...", &expr[..17])
-                        } else {
-                            expr.to_string()
-                        }
-                    ),
+                    "v-bind() has runtime performance cost",
                     start,
                     end,
                 )

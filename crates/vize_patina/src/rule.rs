@@ -19,6 +19,8 @@ pub enum RuleCategory {
     Musea,
     /// Accessibility (a11y) rules
     Accessibility,
+    /// Type-aware rules (require semantic analysis)
+    TypeAware,
 }
 
 /// Rule metadata

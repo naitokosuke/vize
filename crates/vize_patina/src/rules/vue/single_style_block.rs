@@ -94,14 +94,10 @@ impl Rule for SingleStyleBlock {
             if all_scoped || all_non_scoped {
                 // Warn on the second and subsequent style blocks
                 for style in style_blocks.iter().skip(1) {
-                    let scope_type = if style.scoped { "scoped" } else { "global" };
                     ctx.report(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Consider merging multiple {} style blocks into one",
-                                scope_type
-                            ),
+                            "Consider merging multiple style blocks into one",
                             style.pos as u32,
                             (style.pos + 6) as u32, // "<style"
                         )

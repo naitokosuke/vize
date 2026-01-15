@@ -17,6 +17,7 @@ wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 
 [dependencies]
 vize_carton = { workspace = true }
+vize_relief = { workspace = true }
 vize_atelier_core = { workspace = true }
 vize_atelier_dom = { workspace = true }
 vize_atelier_vapor = { workspace = true }
@@ -25,6 +26,7 @@ vize_musea = { workspace = true }
 vize_patina = { workspace = true }
 vize_glyph = { workspace = true }
 vize_croquis = { workspace = true }
+vize_canon = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -50,3 +52,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
 napi-build = "2.0"
+
+[dev-dependencies]
+insta.workspace = true

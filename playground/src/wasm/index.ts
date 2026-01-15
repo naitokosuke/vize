@@ -356,6 +356,54 @@ export interface AnalysisResult {
   vir?: string;
 }
 
+// TypeCheck types (Canon)
+export interface TypeCheckOptions {
+  filename?: string;
+  strict?: boolean;
+  includeVirtualTs?: boolean;
+  checkProps?: boolean;
+  checkEmits?: boolean;
+  checkTemplateBindings?: boolean;
+}
+
+export interface TypeCheckRelatedLocation {
+  message: string;
+  start: number;
+  end: number;
+  filename?: string;
+}
+
+export interface TypeCheckDiagnostic {
+  severity: 'error' | 'warning' | 'info' | 'hint';
+  message: string;
+  start: number;
+  end: number;
+  code?: string;
+  help?: string;
+  related: TypeCheckRelatedLocation[];
+}
+
+export interface TypeCheckResult {
+  diagnostics: TypeCheckDiagnostic[];
+  virtualTs?: string;
+  errorCount: number;
+  warningCount: number;
+  analysisTimeMs?: number;
+}
+
+export interface TypeCheckCapability {
+  name: string;
+  description: string;
+  severity: string;
+}
+
+export interface TypeCheckCapabilities {
+  mode: string;
+  description: string;
+  checks: TypeCheckCapability[];
+  notes: string[];
+}
+
 export interface WasmModule {
   compile: (template: string, options: CompilerOptions) => CompileResult;
   compileVapor: (template: string, options: CompilerOptions) => CompileResult;
@@ -377,6 +425,9 @@ export interface WasmModule {
   formatSfc: (source: string, options: FormatOptions) => FormatResult;
   formatTemplate: (source: string, options: FormatOptions) => FormatResult;
   formatScript: (source: string, options: FormatOptions) => FormatResult;
+  // Canon (TypeCheck) functions
+  typeCheck: (source: string, options: TypeCheckOptions) => TypeCheckResult;
+  getTypeCheckCapabilities: () => TypeCheckCapabilities;
   Compiler: new () => {
     compile: (template: string, options: CompilerOptions) => CompileResult;
     compileVapor: (template: string, options: CompilerOptions) => CompileResult;
@@ -404,7 +455,7 @@ export async function loadWasm(): Promise<WasmModule> {
   loadPromise = (async () => {
     try {
       // Try to load the actual WASM module
-      const wasm = await import('./vize_bindings.js');
+      const wasm = await import('./vize_vitrine.js');
       await wasm.default();
 
       // Get mock module to fill in any missing functions
@@ -568,6 +619,9 @@ export async function loadWasm(): Promise<WasmModule> {
         formatSfc: wasm.formatSfc || mock.formatSfc,
         formatTemplate: wasm.formatTemplate || mock.formatTemplate,
         formatScript: wasm.formatScript || mock.formatScript,
+        // Canon (TypeCheck) functions
+        typeCheck: wasm.typeCheck || mock.typeCheck,
+        getTypeCheckCapabilities: wasm.getTypeCheckCapabilities || mock.getTypeCheckCapabilities,
         Compiler: wasm.Compiler || mock.Compiler,
       };
       usingMock = false;
@@ -4350,6 +4404,92 @@ function createMockModule(): WasmModule {
     };
   };
 
+  // Mock typeCheck function
+  const mockTypeCheck = (source: string, options: TypeCheckOptions): TypeCheckResult => {
+    const diagnostics: TypeCheckDiagnostic[] = [];
+    const filename = options.filename || 'anonymous.vue';
+    const strict = options.strict || false;
+
+    // Check for untyped props (if enabled)
+    if (options.checkProps !== false) {
+      const hasDefineProps = source.includes('defineProps');
+      const hasTypedProps = source.includes('defineProps<') || source.includes('defineProps({');
+      if (hasDefineProps && !hasTypedProps) {
+        const propsMatch = source.match(/defineProps\(/);
+        if (propsMatch) {
+          diagnostics.push({
+            severity: strict ? 'error' : 'warning',
+            message: 'Props should have a type definition',
+            start: propsMatch.index || 0,
+            end: (propsMatch.index || 0) + 12,
+            code: 'untyped-prop',
+            help: 'Use defineProps<{ propName: Type }>() or define runtime type',
+            related: [],
+          });
+        }
+      }
+    }
+
+    // Check for untyped emits (if enabled)
+    if (options.checkEmits !== false) {
+      const hasDefineEmits = source.includes('defineEmits');
+      const hasTypedEmits = source.includes('defineEmits<') || source.includes('defineEmits([');
+      if (hasDefineEmits && !hasTypedEmits) {
+        const emitsMatch = source.match(/defineEmits\(/);
+        if (emitsMatch) {
+          diagnostics.push({
+            severity: strict ? 'error' : 'warning',
+            message: 'Emits should have a type definition',
+            start: emitsMatch.index || 0,
+            end: (emitsMatch.index || 0) + 12,
+            code: 'untyped-emit',
+            help: 'Use defineEmits<{ event: [payload: Type] }>()',
+            related: [],
+          });
+        }
+      }
+    }
+
+    const errorCount = diagnostics.filter(d => d.severity === 'error').length;
+    const warningCount = diagnostics.filter(d => d.severity === 'warning').length;
+
+    return {
+      diagnostics,
+      virtualTs: options.includeVirtualTs ? `// Virtual TypeScript for ${filename}\n// (mock)` : undefined,
+      errorCount,
+      warningCount,
+      analysisTimeMs: 0.5,
+    };
+  };
+
+  const mockGetTypeCheckCapabilities = (): TypeCheckCapabilities => {
+    return {
+      mode: 'ast-based',
+      description: 'AST-based type analysis (no TypeScript compiler required)',
+      checks: [
+        {
+          name: 'untyped-props',
+          description: 'Detects props without type definitions',
+          severity: 'warning',
+        },
+        {
+          name: 'untyped-emits',
+          description: 'Detects emits without type definitions',
+          severity: 'warning',
+        },
+        {
+          name: 'undefined-binding',
+          description: 'Detects undefined template bindings',
+          severity: 'error',
+        },
+      ],
+      notes: [
+        'For full TypeScript type checking, use the CLI with tsgo integration',
+        'AST-based analysis catches common issues without external dependencies',
+      ],
+    };
+  };
+
   return {
     compile: mockCompile,
     compileVapor: (template: string, options: CompilerOptions) =>
@@ -4368,6 +4508,8 @@ function createMockModule(): WasmModule {
     formatSfc: mockFormatSfc,
     formatTemplate: mockFormatTemplate,
     formatScript: mockFormatScript,
+    typeCheck: mockTypeCheck,
+    getTypeCheckCapabilities: mockGetTypeCheckCapabilities,
     Compiler: MockCompiler,
   };
 }

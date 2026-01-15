@@ -107,7 +107,7 @@ impl Rule for SfcElementOrder {
             if curr_type < prev_type {
                 ctx.warn_with_help(
                     format!(
-                        "{} should be placed before {} in SFC",
+                        "{} should come before {}",
                         curr_type.name(),
                         prev_type.name()
                     ),

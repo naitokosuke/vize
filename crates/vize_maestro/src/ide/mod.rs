@@ -34,7 +34,7 @@ pub use hover::{HoverBuilder, HoverService};
 pub use references::ReferencesService;
 pub use rename::RenameService;
 pub use semantic_tokens::{SemanticTokensService, TokenModifier, TokenType};
-pub use type_service::TypeService;
+pub use type_service::{LspTypeCheckOptions, TypeService};
 pub use workspace_symbols::WorkspaceSymbolsService;
 
 use tower_lsp::lsp_types::Url;

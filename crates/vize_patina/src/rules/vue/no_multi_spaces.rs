@@ -62,7 +62,6 @@ impl Rule for NoMultiSpaces {
                 // Example: prev_end=15 (quote), curr_start=17 (i in id) -> gap = 1 space at pos 16
                 if curr_start > prev_end + 2 {
                     // More than one space between attributes
-                    let space_count = curr_start - prev_end - 1;
                     let fix = Fix::new(
                         "Replace multiple spaces with single space",
                         TextEdit::replace(prev_end + 1, curr_start, " "),
@@ -71,7 +70,7 @@ impl Rule for NoMultiSpaces {
                     ctx.report(
                         LintDiagnostic::warn(
                             META.name,
-                            format!("Multiple consecutive spaces ({} spaces)", space_count),
+                            "Multiple consecutive spaces",
                             prev_end + 1,
                             curr_start,
                         )

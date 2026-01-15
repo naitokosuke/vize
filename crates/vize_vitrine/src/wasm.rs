@@ -1,5 +1,10 @@
 //! WASM bindings for Vue compiler.
 
+// Re-export type checking bindings from separate module
+#[path = "wasm_typecheck.rs"]
+mod wasm_typecheck;
+pub use wasm_typecheck::*;
+
 use serde::Serialize;
 use vize_carton::Bump;
 use wasm_bindgen::prelude::*;

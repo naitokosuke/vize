@@ -64,7 +64,7 @@ impl Rule for MustacheInterpolationSpacing {
         ctx: &mut LintContext<'a>,
         interpolation: &InterpolationNode<'a>,
     ) {
-        let content = match &interpolation.content {
+        let _content = match &interpolation.content {
             ExpressionNode::Simple(s) => s.content.as_str(),
             ExpressionNode::Compound(_) => return,
         };
@@ -97,7 +97,7 @@ impl Rule for MustacheInterpolationSpacing {
                     ctx.warn_with_help(
                         "Expected spaces inside mustache interpolation",
                         &interpolation.loc,
-                        format!("Use `{{{{ {} }}}}`", content.trim()),
+                        "Add spaces inside mustache braces",
                     );
                 }
             }
@@ -107,7 +107,7 @@ impl Rule for MustacheInterpolationSpacing {
                     ctx.warn_with_help(
                         "Unexpected spaces inside mustache interpolation",
                         &interpolation.loc,
-                        format!("Use `{{{{{}}}}}`", trimmed),
+                        "Remove spaces inside mustache braces",
                     );
                 }
             }

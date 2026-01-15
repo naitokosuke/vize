@@ -58,7 +58,8 @@ impl RequireFunctionReturnType {
         trimmed.starts_with(':')
     }
 
-    /// Find the function name from context
+    /// Find the function name from context (reserved for future use)
+    #[allow(dead_code)]
     fn extract_function_name(source: &str, pos: usize) -> Option<String> {
         // Look backwards for 'function ' or 'const '
         let before = &source[..pos];
@@ -136,16 +137,21 @@ impl ScriptRule for RequireFunctionReturnType {
                 if let Some(cp) = close_pos {
                     let after_paren = &rest[cp + 1..];
                     if !Self::has_return_type(after_paren) {
-                        let func_name = Self::extract_function_name(source, abs_pos + paren_start)
-                            .unwrap_or_else(|| "anonymous".to_string());
-
+                        // Extract function name for better error message
+                        let name_part = &rest[9..paren_start]; // after "function " until "("
+                        let func_name = name_part.trim();
+                        let message = if func_name.is_empty() {
+                            "Function is missing a return type annotation".to_string()
+                        } else {
+                            format!(
+                                "Function '{}' is missing a return type annotation",
+                                func_name
+                            )
+                        };
                         result.add_diagnostic(
                             LintDiagnostic::warn(
                                 META.name,
-                                format!(
-                                    "Function \"{}\" is missing a return type annotation",
-                                    func_name
-                                ),
+                                message,
                                 (offset + abs_pos) as u32,
                                 (offset + abs_pos + cp + 1) as u32,
                             )
@@ -192,9 +198,6 @@ impl ScriptRule for RequireFunctionReturnType {
                 // A return type would look like ): Type, so after the last )
                 // we should see : before =>
                 if !params_section.contains("):") {
-                    let func_name = Self::extract_function_name(source, op)
-                        .unwrap_or_else(|| "anonymous".to_string());
-
                     // Skip if this looks like a callback (inside another function call)
                     let before_paren = &source[..op];
                     let is_callback = before_paren
@@ -208,10 +211,7 @@ impl ScriptRule for RequireFunctionReturnType {
                         result.add_diagnostic(
                             LintDiagnostic::warn(
                                 META.name,
-                                format!(
-                                    "Arrow function \"{}\" is missing a return type annotation",
-                                    func_name
-                                ),
+                                "Arrow function is missing a return type annotation",
                                 (offset + op) as u32,
                                 (offset + abs_pos + 4) as u32,
                             )

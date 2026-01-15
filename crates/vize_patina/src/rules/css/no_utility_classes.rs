@@ -147,10 +147,7 @@ impl CssRule for NoUtilityClasses {
                     result.add_diagnostic(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Utility class '{}' should be in global styles, not component styles",
-                                pattern
-                            ),
+                            "Utility class should be in global styles, not component styles",
                             (offset + absolute_pos) as u32,
                             (offset + end_pos) as u32,
                         )
@@ -195,15 +192,10 @@ impl CssRule for NoUtilityClasses {
                         end += 1;
                     }
 
-                    let class_name = &source[absolute_pos..end];
-
                     result.add_diagnostic(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Utility class '{}' should be in global styles, not component styles",
-                                class_name
-                            ),
+                            "Utility class should be in global styles, not component styles",
                             (offset + absolute_pos) as u32,
                             (offset + end) as u32,
                         )

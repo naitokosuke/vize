@@ -1,5 +1,9 @@
 //! NAPI bindings for Vue compiler.
 
+#[path = "napi_typecheck.rs"]
+mod napi_typecheck;
+pub use napi_typecheck::*;
+
 use glob::glob;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;

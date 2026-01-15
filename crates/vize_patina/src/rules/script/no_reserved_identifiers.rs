@@ -105,10 +105,7 @@ impl ScriptRule for NoReservedIdentifiers {
                     result.add_diagnostic(
                         LintDiagnostic::error(
                             META.name,
-                            format!(
-                                "'{}' is a Vue compiler reserved identifier and should not be used",
-                                reserved
-                            ),
+                            "Vue compiler reserved identifier should not be used",
                             (offset + abs_pos) as u32,
                             (offset + abs_pos + reserved.len()) as u32,
                         )

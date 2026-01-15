@@ -81,7 +81,7 @@ impl Rule for NoScriptNonStandardLang {
                         ctx.report(
                             LintDiagnostic::warn(
                                 META.name,
-                                format!("Non-standard script lang '{}' is discouraged", lang_value),
+                                "Non-standard script lang is discouraged",
                                 abs_pos as u32,
                                 (abs_pos + tag_end + 1) as u32,
                             )

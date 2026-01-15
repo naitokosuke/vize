@@ -19,7 +19,6 @@
 use crate::context::LintContext;
 use crate::diagnostic::Severity;
 use crate::rule::{Rule, RuleCategory, RuleMeta};
-use vize_carton::hyphenate;
 use vize_croquis::naming::is_camel_case;
 use vize_relief::ast::{ElementNode, PropNode};
 
@@ -145,11 +144,10 @@ impl Rule for AttributeHyphenation {
             match self.style {
                 HyphenationStyle::Always => {
                     if is_camel_case(name) {
-                        let kebab = hyphenate(name);
                         ctx.warn_with_help(
-                            format!("Attribute `{}` should be hyphenated", name),
+                            "Attribute should be hyphenated",
                             loc,
-                            format!("Use `{}`", kebab),
+                            "Use kebab-case for attribute names",
                         );
                     }
                 }

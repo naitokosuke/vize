@@ -83,12 +83,15 @@ impl Rule for PreferStaticClass {
 
             // Create fix: replace :class="'value'" with class="value"
             if !has_static_class {
+                let mut replacement = String::from("class=\"");
+                replacement.push_str(inner);
+                replacement.push('"');
                 let fix = Fix::new(
-                    format!("Replace with class=\"{}\"", inner),
+                    "Replace with static class attribute",
                     TextEdit::replace(
                         directive.loc.start.offset,
                         directive.loc.end.offset + 1, // Include closing quote
-                        format!("class=\"{}\"", inner),
+                        replacement,
                     ),
                 );
 

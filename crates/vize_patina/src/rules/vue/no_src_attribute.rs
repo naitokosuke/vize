@@ -86,10 +86,7 @@ impl Rule for NoSrcAttribute {
                             ctx.report(
                                 LintDiagnostic::warn(
                                     META.name,
-                                    format!(
-                                        "Avoid using src attribute on <{}> block",
-                                        block_type
-                                    ),
+                                    "Avoid using src attribute on SFC blocks",
                                     abs_pos as u32,
                                     (abs_pos + tag_end + 1) as u32,
                                 )

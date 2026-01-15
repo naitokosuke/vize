@@ -100,28 +100,11 @@ impl Rule for ScopedEventNames {
         }
 
         // Check if this event could benefit from scoping
-        if let Some(context) = Self::could_benefit_from_scope(event_name) {
-            let suggested = format!(
-                "{}:{}",
-                context.to_lowercase(),
-                event_name
-                    .strip_suffix(context)
-                    .or_else(|| event_name.strip_suffix(&context.to_lowercase()))
-                    .unwrap_or(event_name)
-                    .trim_end_matches('-')
-                    .to_lowercase()
-            );
-
+        if Self::could_benefit_from_scope(event_name).is_some() {
             ctx.warn_with_help(
-                format!(
-                    "Consider using scoped event name for better organization: \"{}\"",
-                    event_name
-                ),
+                "Consider using scoped event name for better organization",
                 &directive.loc,
-                format!(
-                    "Use \"{}\" format instead (e.g., \"{}\")",
-                    "context:event", suggested
-                ),
+                "Use \"context:event\" format for better organization",
             );
         }
     }

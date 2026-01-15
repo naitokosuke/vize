@@ -104,16 +104,10 @@ impl ScriptRule for NoInternalImports {
                     let start = offset + spec_abs_start;
                     let end = start + module_specifier.len();
 
-                    // SAFETY: module_specifier is valid UTF-8 as it comes from source
-                    let specifier_str = unsafe { std::str::from_utf8_unchecked(module_specifier) };
-
                     result.add_diagnostic(
                         LintDiagnostic::error(
                             META.name,
-                            format!(
-                                "Importing from internal Vue module '{}' is forbidden",
-                                specifier_str
-                            ),
+                            "Importing from internal Vue module is forbidden",
                             start as u32,
                             end as u32,
                         )

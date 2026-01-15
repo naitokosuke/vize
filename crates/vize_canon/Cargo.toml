@@ -6,8 +6,31 @@ license.workspace = true
 repository.workspace = true
 description = "Canon - The standard of correctness for Vize type checking"
 
+[features]
+default = ["native"]
+native = ["dep:tokio", "dep:which"]
+
 [dependencies]
 vize_carton.workspace = true
+vize_croquis.workspace = true
+vize_relief.workspace = true
+vize_atelier_core.workspace = true
+vize_atelier_sfc.workspace = true
+
+# Async runtime (optional, not available on WASM)
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt"], optional = true }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Utilities
+dashmap.workspace = true
+tracing = "0.1"
+which = { version = "7", optional = true }
 
 [dev-dependencies]
+tempfile = "3.10"
+tokio = { version = "1", features = ["full", "test-util"] }
+insta.workspace = true
 

@@ -1,0 +1,603 @@
+//! Virtual TypeScript code generation for Vue SFC type checking.
+//!
+//! Generates TypeScript code from Vue SFC components that can be fed
+//! to tsgo for type checking. This enables full TypeScript support
+//! for template expressions, props, emits, and other Vue features.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! Vue SFC (.vue)
+//!     │
+//!     ▼
+//! VirtualTsGenerator
+//!     │
+//!     ├─► Script Setup Context (props, emits, bindings)
+//!     │
+//!     ├─► Template Expressions TypeScript
+//!     │
+//!     └─► Source Map (Vue → TypeScript positions)
+//! ```
+
+use std::path::Path;
+
+use vize_carton::{
+    source_range::{MappingData, SourceMap, SourceMapping, SourceRange},
+    CompactString,
+};
+use vize_relief::ast::*;
+use vize_relief::BindingType;
+
+use crate::analysis::BindingMetadata;
+use crate::import_resolver::{ImportResolver, ResolvedModule};
+use crate::types::TypeResolver;
+
+/// Output of virtual TypeScript generation.
+#[derive(Debug, Clone)]
+pub struct VirtualTsOutput {
+    /// Generated TypeScript code
+    pub content: String,
+    /// Source map for position mapping
+    pub source_map: SourceMap,
+    /// Resolved external imports
+    pub resolved_imports: Vec<ResolvedImport>,
+    /// Diagnostics/warnings during generation
+    pub diagnostics: Vec<GenerationDiagnostic>,
+}
+
+impl Default for VirtualTsOutput {
+    fn default() -> Self {
+        Self {
+            content: String::new(),
+            source_map: SourceMap::new(),
+            resolved_imports: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+/// A resolved external import.
+#[derive(Debug, Clone)]
+pub struct ResolvedImport {
+    /// Original import specifier
+    pub specifier: CompactString,
+    /// Resolved module
+    pub module: ResolvedModule,
+    /// Imported names
+    pub names: Vec<CompactString>,
+}
+
+/// A diagnostic message from generation.
+#[derive(Debug, Clone)]
+pub struct GenerationDiagnostic {
+    /// Message text
+    pub message: CompactString,
+    /// Source range (if applicable)
+    pub range: Option<SourceRange>,
+    /// Severity level
+    pub severity: DiagnosticSeverity,
+}
+
+/// Diagnostic severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    /// Error - generation failed
+    Error,
+    /// Warning - generation succeeded with issues
+    Warning,
+    /// Info - informational message
+    Info,
+}
+
+/// Virtual TypeScript generator.
+///
+/// Generates TypeScript code from Vue SFC components for type checking.
+/// Supports:
+/// - Script setup with defineProps/defineEmits
+/// - Template expressions with proper typing
+/// - External type imports resolution
+pub struct VirtualTsGenerator {
+    /// Type resolver for inline types
+    type_resolver: TypeResolver,
+    /// Import resolver for external types
+    import_resolver: Option<ImportResolver>,
+    /// Generated output buffer
+    output: String,
+    /// Source mappings
+    mappings: Vec<SourceMapping>,
+    /// Current output offset
+    gen_offset: u32,
+    /// Expression counter for unique names
+    expr_counter: u32,
+    /// Block offset in original SFC
+    block_offset: u32,
+    /// Resolved imports
+    resolved_imports: Vec<ResolvedImport>,
+    /// Generation diagnostics
+    diagnostics: Vec<GenerationDiagnostic>,
+}
+
+impl VirtualTsGenerator {
+    /// Create a new generator.
+    pub fn new() -> Self {
+        Self {
+            type_resolver: TypeResolver::new(),
+            import_resolver: None,
+            output: String::with_capacity(4096),
+            mappings: Vec::with_capacity(64),
+            gen_offset: 0,
+            expr_counter: 0,
+            block_offset: 0,
+            resolved_imports: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Create with an import resolver.
+    pub fn with_import_resolver(mut self, resolver: ImportResolver) -> Self {
+        self.import_resolver = Some(resolver);
+        self
+    }
+
+    /// Set the type resolver.
+    pub fn with_type_resolver(mut self, resolver: TypeResolver) -> Self {
+        self.type_resolver = resolver;
+        self
+    }
+
+    /// Reset state for a new generation.
+    fn reset(&mut self) {
+        self.output.clear();
+        self.mappings.clear();
+        self.gen_offset = 0;
+        self.expr_counter = 0;
+        self.block_offset = 0;
+        self.resolved_imports.clear();
+        self.diagnostics.clear();
+    }
+
+    /// Generate virtual TypeScript from script setup content.
+    ///
+    /// This processes the script setup block and generates TypeScript
+    /// that includes proper typing for defineProps, defineEmits, etc.
+    pub fn generate_script_setup(
+        &mut self,
+        script_content: &str,
+        bindings: &BindingMetadata,
+        from_file: Option<&Path>,
+    ) -> VirtualTsOutput {
+        self.reset();
+
+        // Header
+        self.write_line("// Virtual TypeScript for Vue SFC type checking");
+        self.write_line("// Generated by vize_croquis");
+        self.write_line("");
+
+        // Import Vue types
+        self.write_line("import type { DefineComponent, PropType } from 'vue';");
+        self.write_line("");
+
+        // Process imports and resolve external types
+        self.process_imports(script_content, from_file);
+
+        // Generate props type
+        self.generate_props_type(bindings);
+
+        // Generate emits type
+        self.generate_emits_type(bindings);
+
+        // Generate context type from bindings
+        self.generate_context_type(bindings);
+
+        // Write the original script with type annotations
+        self.write_line("// Original script content");
+        let script_start = self.gen_offset;
+        self.write(script_content);
+        self.write_line("");
+
+        // Add mapping for the entire script
+        self.mappings.push(SourceMapping::new(
+            SourceRange::new(0, script_content.len() as u32),
+            SourceRange::new(script_start, self.gen_offset),
+        ));
+
+        self.create_output()
+    }
+
+    /// Generate virtual TypeScript from template AST.
+    ///
+    /// Extracts all expressions from the template and generates
+    /// TypeScript that can be type-checked.
+    pub fn generate_template(
+        &mut self,
+        ast: &RootNode,
+        bindings: &BindingMetadata,
+        block_offset: u32,
+    ) -> VirtualTsOutput {
+        self.reset();
+        self.block_offset = block_offset;
+
+        // Header
+        self.write_line("// Virtual TypeScript for template type checking");
+        self.write_line("// Generated by vize_croquis");
+        self.write_line("");
+
+        // Generate context type from bindings
+        self.write_line("// Context from script setup");
+        self.write("declare const __ctx: { ");
+
+        let binding_entries: Vec<_> = bindings.bindings.iter().collect();
+        for (i, (name, binding_type)) in binding_entries.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            let ts_type = self.binding_type_to_ts(**binding_type);
+            self.write(&format!("{}: {}", name, ts_type));
+        }
+        self.write_line(" };");
+        self.write_line("");
+
+        // Extract and emit template expressions
+        self.write_line("// Template expressions");
+        self.visit_children(&ast.children);
+
+        self.create_output()
+    }
+
+    /// Process imports and resolve external types.
+    fn process_imports(&mut self, content: &str, from_file: Option<&Path>) {
+        let resolver = match (&self.import_resolver, from_file) {
+            (Some(r), Some(f)) => (r, f),
+            _ => return,
+        };
+
+        // Simple regex-based import extraction
+        // TODO: Use OXC for more accurate parsing
+        let import_re =
+            regex::Regex::new(r#"import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]"#);
+
+        if let Ok(re) = import_re {
+            for cap in re.captures_iter(content) {
+                if let (Some(names), Some(source)) = (cap.get(1), cap.get(2)) {
+                    let specifier = source.as_str();
+
+                    // Try to resolve the import
+                    match resolver.0.resolve(specifier, resolver.1) {
+                        Ok(module) => {
+                            let names: Vec<CompactString> = names
+                                .as_str()
+                                .split(',')
+                                .map(|s| CompactString::new(s.trim()))
+                                .filter(|s| !s.is_empty())
+                                .collect();
+
+                            self.resolved_imports.push(ResolvedImport {
+                                specifier: CompactString::new(specifier),
+                                module,
+                                names,
+                            });
+                        }
+                        Err(e) => {
+                            self.diagnostics.push(GenerationDiagnostic {
+                                message: CompactString::new(format!(
+                                    "Could not resolve import '{}': {}",
+                                    specifier, e
+                                )),
+                                range: None,
+                                severity: DiagnosticSeverity::Warning,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Load and merge type definitions from resolved imports
+        for import in &self.resolved_imports {
+            if let Ok(content) = resolver.0.get_content(&import.module) {
+                let defs = resolver.0.extract_type_definitions(&content);
+                for (name, body) in defs {
+                    self.type_resolver.add_interface(name.clone(), body);
+                }
+            }
+        }
+    }
+
+    /// Generate props type definition.
+    fn generate_props_type(&mut self, bindings: &BindingMetadata) {
+        self.write_line("// Props type");
+        self.write("type __Props = { ");
+
+        let props: Vec<_> = bindings
+            .bindings
+            .iter()
+            .filter(|(_, t)| matches!(t, BindingType::Props | BindingType::PropsAliased))
+            .collect();
+
+        for (i, (name, _)) in props.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            self.write(&format!("{}?: any", name));
+        }
+
+        self.write_line(" };");
+        self.write_line("");
+    }
+
+    /// Generate emits type definition.
+    fn generate_emits_type(&mut self, _bindings: &BindingMetadata) {
+        self.write_line("// Emits type");
+        self.write_line("type __Emits = {};");
+        self.write_line("");
+    }
+
+    /// Generate context type from bindings.
+    fn generate_context_type(&mut self, bindings: &BindingMetadata) {
+        self.write_line("// Script setup context");
+        self.write("declare const __ctx: { ");
+
+        let entries: Vec<_> = bindings.bindings.iter().collect();
+        for (i, (name, binding_type)) in entries.iter().enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            let ts_type = self.binding_type_to_ts(**binding_type);
+            self.write(&format!("{}: {}", name, ts_type));
+        }
+
+        self.write_line(" };");
+        self.write_line("");
+    }
+
+    /// Convert binding type to TypeScript type.
+    fn binding_type_to_ts(&self, binding_type: BindingType) -> &'static str {
+        match binding_type {
+            BindingType::Data => "any",
+            BindingType::Props => "any",
+            BindingType::PropsAliased => "any",
+            BindingType::SetupLet => "any",
+            BindingType::SetupConst => "any",
+            BindingType::SetupReactiveConst => "any",
+            BindingType::SetupMaybeRef => "any",
+            BindingType::SetupRef => "import('vue').Ref<any>",
+            BindingType::Options => "any",
+            BindingType::LiteralConst => "any",
+            BindingType::JsGlobalUniversal => "any",
+            BindingType::JsGlobalBrowser => "any",
+            BindingType::JsGlobalNode => "any",
+            BindingType::JsGlobalDeno => "any",
+            BindingType::JsGlobalBun => "any",
+            BindingType::VueGlobal => "any",
+            BindingType::ExternalModule => "any",
+        }
+    }
+
+    /// Visit template children.
+    fn visit_children(&mut self, children: &[TemplateChildNode]) {
+        for child in children {
+            self.visit_child(child);
+        }
+    }
+
+    /// Visit a single template child.
+    fn visit_child(&mut self, node: &TemplateChildNode) {
+        match node {
+            TemplateChildNode::Element(el) => self.visit_element(el),
+            TemplateChildNode::Interpolation(interp) => self.visit_interpolation(interp),
+            TemplateChildNode::If(if_node) => self.visit_if(if_node),
+            TemplateChildNode::For(for_node) => self.visit_for(for_node),
+            TemplateChildNode::IfBranch(branch) => {
+                if let Some(ref cond) = branch.condition {
+                    self.emit_expression(cond, "v-if");
+                }
+                self.visit_children(&branch.children);
+            }
+            _ => {}
+        }
+    }
+
+    /// Visit an element node.
+    fn visit_element(&mut self, element: &ElementNode) {
+        // Process directives
+        for prop in &element.props {
+            if let PropNode::Directive(dir) = prop {
+                self.visit_directive(dir);
+            }
+        }
+
+        // Process children
+        self.visit_children(&element.children);
+    }
+
+    /// Visit a directive.
+    fn visit_directive(&mut self, directive: &DirectiveNode) {
+        if let Some(ref exp) = directive.exp {
+            self.emit_expression(exp, &directive.name);
+        }
+    }
+
+    /// Visit an interpolation.
+    fn visit_interpolation(&mut self, interp: &InterpolationNode) {
+        self.emit_expression(&interp.content, "interpolation");
+    }
+
+    /// Visit an if node.
+    fn visit_if(&mut self, if_node: &IfNode) {
+        for branch in &if_node.branches {
+            if let Some(ref cond) = branch.condition {
+                self.emit_expression(cond, "v-if");
+            }
+            self.visit_children(&branch.children);
+        }
+    }
+
+    /// Visit a for node.
+    fn visit_for(&mut self, for_node: &ForNode) {
+        self.emit_expression(&for_node.source, "v-for");
+        self.visit_children(&for_node.children);
+    }
+
+    /// Emit a TypeScript expression with source mapping.
+    fn emit_expression(&mut self, expr: &ExpressionNode, context: &str) {
+        match expr {
+            ExpressionNode::Simple(simple) => {
+                if simple.content.is_empty() {
+                    return;
+                }
+
+                let var_name = format!("__expr_{}", self.expr_counter);
+                self.expr_counter += 1;
+
+                // Generate: const __expr_N = __ctx.expr;
+                let prefix = format!("const {} = __ctx.", var_name);
+                let line = format!("{}{};\n", prefix, simple.content);
+
+                // Calculate positions for mapping
+                let expr_start = self.gen_offset + prefix.len() as u32;
+                let expr_end = expr_start + simple.content.len() as u32;
+
+                let source_start = simple.loc.start.offset + self.block_offset;
+                let source_end = simple.loc.end.offset + self.block_offset;
+
+                // Create mapping
+                self.mappings.push(SourceMapping::with_data(
+                    SourceRange::new(source_start, source_end),
+                    SourceRange::new(expr_start, expr_end),
+                    MappingData::Expression {
+                        text: simple.content.to_string(),
+                    },
+                ));
+
+                self.write(&line);
+            }
+            ExpressionNode::Compound(_) => {
+                // For compound expressions, emit a placeholder
+                let var_name = format!("__expr_{}", self.expr_counter);
+                self.expr_counter += 1;
+                let line = format!(
+                    "const {} = void 0 as any; // {} compound\n",
+                    var_name, context
+                );
+                self.write(&line);
+            }
+        }
+    }
+
+    /// Create the output from current state.
+    fn create_output(&mut self) -> VirtualTsOutput {
+        let mut source_map = SourceMap::from_mappings(std::mem::take(&mut self.mappings));
+        source_map.set_block_offset(self.block_offset);
+
+        VirtualTsOutput {
+            content: std::mem::take(&mut self.output),
+            source_map,
+            resolved_imports: std::mem::take(&mut self.resolved_imports),
+            diagnostics: std::mem::take(&mut self.diagnostics),
+        }
+    }
+
+    /// Write a string to output.
+    fn write(&mut self, s: &str) {
+        self.output.push_str(s);
+        self.gen_offset += s.len() as u32;
+    }
+
+    /// Write a line to output.
+    fn write_line(&mut self, s: &str) {
+        self.output.push_str(s);
+        self.output.push('\n');
+        self.gen_offset += s.len() as u32 + 1;
+    }
+}
+
+impl Default for VirtualTsGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Convenience function to generate virtual TypeScript from a full SFC.
+pub fn generate_virtual_ts(
+    script_content: Option<&str>,
+    template_ast: Option<&RootNode>,
+    bindings: &BindingMetadata,
+    import_resolver: Option<ImportResolver>,
+    from_file: Option<&Path>,
+    template_offset: u32,
+) -> VirtualTsOutput {
+    let mut gen = VirtualTsGenerator::new();
+    if let Some(resolver) = import_resolver {
+        gen = gen.with_import_resolver(resolver);
+    }
+
+    // Generate script output first if present
+    let script_output = script_content.map(|s| gen.generate_script_setup(s, bindings, from_file));
+
+    // Generate template output
+    let template_output =
+        template_ast.map(|ast| gen.generate_template(ast, bindings, template_offset));
+
+    // Combine outputs
+    match (script_output, template_output) {
+        (Some(mut script), Some(template)) => {
+            // Merge template content into script
+            script.content.push_str("\n// Template expressions\n");
+            script.content.push_str(&template.content);
+
+            // Adjust template mappings and merge
+            let script_len = script.content.len() as u32;
+            for mut mapping in template.source_map.mappings().iter().cloned() {
+                mapping.generated.start += script_len;
+                mapping.generated.end += script_len;
+                script.source_map.add(mapping);
+            }
+
+            script.diagnostics.extend(template.diagnostics);
+            script
+        }
+        (Some(script), None) => script,
+        (None, Some(template)) => template,
+        (None, None) => VirtualTsOutput::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_script_setup() {
+        let script = r#"
+const msg = ref('Hello');
+const count = ref(0);
+"#;
+        let mut bindings = BindingMetadata::default();
+        bindings.add("msg", BindingType::SetupRef);
+        bindings.add("count", BindingType::SetupRef);
+
+        let mut gen = VirtualTsGenerator::new();
+        let output = gen.generate_script_setup(script, &bindings, None);
+
+        assert!(output.content.contains("__ctx"));
+        assert!(output.content.contains("msg"));
+        assert!(output.content.contains("count"));
+    }
+
+    #[test]
+    fn test_generate_template() {
+        let source = r#"<div>{{ message }}</div>"#;
+        let allocator = vize_carton::Bump::new();
+        let (ast, _) = vize_armature::parse(&allocator, source);
+
+        let mut bindings = BindingMetadata::default();
+        bindings.add("message", BindingType::SetupRef);
+
+        let mut gen = VirtualTsGenerator::new();
+        let output = gen.generate_template(&ast, &bindings, 0);
+
+        assert!(output.content.contains("__ctx"));
+        assert!(output.content.contains("message"));
+        assert!(!output.source_map.is_empty());
+    }
+}

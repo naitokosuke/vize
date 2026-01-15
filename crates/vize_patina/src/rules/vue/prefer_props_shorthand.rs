@@ -82,12 +82,9 @@ impl Rule for PreferPropsShorthand {
 
                             if is_simple_identifier && names_match(prop_name, value) {
                                 ctx.warn_with_help(
-                                    format!(
-                                        "Use shorthand syntax: `:{}` instead of `:{}=\"{}\"`",
-                                        prop_name, prop_name, value
-                                    ),
+                                    "Use shorthand syntax for same-name prop binding",
                                     &dir.loc,
-                                    format!("Use `:{}`", prop_name),
+                                    "Use shorthand prop syntax",
                                 );
                             }
                         }

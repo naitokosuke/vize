@@ -209,11 +209,7 @@ impl MuseaLinter {
                         result.add_diagnostic(
                             LintDiagnostic::error(
                                 "musea/unique-variant-names",
-                                format!(
-                                    "Duplicate variant name '{}'",
-                                    // SAFETY: name comes from source which is valid UTF-8
-                                    unsafe { std::str::from_utf8_unchecked(name) }
-                                ),
+                                "Duplicate variant name",
                                 abs_pos as u32,
                                 (abs_pos + tag_end) as u32,
                             )

@@ -39,6 +39,8 @@ pub mod dom_tag_config;
 pub mod flags;
 pub mod general;
 pub mod i18n;
+pub mod profiler;
+pub mod source_range;
 
 // Re-export allocator types
 pub use allocator::Allocator;

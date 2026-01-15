@@ -167,10 +167,7 @@ impl Rule for RequireComponentRegistration {
                 ctx.report(
                     LintDiagnostic::warn(
                         META.name,
-                        format!(
-                            "Component '{}' is used but not explicitly imported",
-                            tag
-                        ),
+                        "Component is used but not explicitly imported",
                         start,
                         end,
                     )

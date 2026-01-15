@@ -99,10 +99,7 @@ impl Rule for MultiWordComponentNames {
         // Check if the component name is multi-word
         if !Self::is_multi_word(tag) {
             ctx.error_with_help(
-                format!(
-                    "Component name \"{}\" should be multi-word to avoid conflicts with HTML elements",
-                    tag
-                ),
+                "Component name should be multi-word to avoid conflicts with HTML elements",
                 &element.loc,
                 "Rename the component to use multiple words (e.g., \"TodoItem\" instead of \"Item\")",
             );

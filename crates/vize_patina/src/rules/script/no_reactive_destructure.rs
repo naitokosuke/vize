@@ -135,16 +135,12 @@ impl ScriptRule for NoReactiveDestructure {
                         result.add_diagnostic(
                             LintDiagnostic::warn(
                                 META.name,
-                                format!(
-                                    "Destructuring reactive object \"{}\" loses reactivity",
-                                    var
-                                ),
+                                "Destructuring reactive object loses reactivity",
                                 (offset + open_brace) as u32,
                                 (offset + abs_pos + pattern.len()) as u32,
                             )
                             .with_help(
-                                "Use toRefs() to maintain reactivity: `const {{ a, b }} = toRefs({})` \
-                                 or access properties directly: `{}.property`",
+                                "Use toRefs() to maintain reactivity or access properties directly",
                             ),
                         );
                     }

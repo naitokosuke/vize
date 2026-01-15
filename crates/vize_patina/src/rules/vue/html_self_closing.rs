@@ -113,9 +113,9 @@ impl Rule for HtmlSelfClosing {
         // Void elements should always be self-closing
         if is_void && !is_self_closing {
             ctx.warn_with_help(
-                format!("Void element `<{}>` should be self-closing", tag),
+                "Void element should be self-closing",
                 &element.loc,
-                format!("Use `<{} />`", tag),
+                "Use self-closing syntax",
             );
             return;
         }
@@ -123,9 +123,9 @@ impl Rule for HtmlSelfClosing {
         // SVG/MathML elements without children should be self-closing
         if (is_svg || is_mathml) && !has_children && !is_self_closing {
             ctx.warn_with_help(
-                format!("Empty `<{}>` element should be self-closing", tag),
+                "Empty element should be self-closing",
                 &element.loc,
-                format!("Use `<{} />`", tag),
+                "Use self-closing syntax",
             );
             return;
         }
@@ -133,9 +133,9 @@ impl Rule for HtmlSelfClosing {
         // Component elements without children should be self-closing
         if is_component && !has_children && !is_self_closing {
             ctx.warn_with_help(
-                format!("Empty component `<{}>` should be self-closing", tag),
+                "Empty component should be self-closing",
                 &element.loc,
-                format!("Use `<{} />`", tag),
+                "Use self-closing syntax",
             );
         }
 

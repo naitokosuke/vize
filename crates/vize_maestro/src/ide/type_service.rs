@@ -1,21 +1,173 @@
 //! Type checking service for Vue SFC files.
 //!
-//! Integrates vize_canon type checker with the LSP server.
+//! Integrates vize_vitrine's strict type checker with the LSP server.
+//! Uses croquis for semantic analysis and provides comprehensive type diagnostics.
 
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
+use tower_lsp::lsp_types::{
+    CodeDescription, Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, Location,
+    NumberOrString, Position, Range, Url,
+};
+use vize_bindings::{type_check_sfc, TypeCheckOptions, TypeSeverity};
 
 use super::IdeContext;
 use crate::server::ServerState;
+
+/// Type checking options for LSP.
+#[derive(Debug, Clone)]
+pub struct LspTypeCheckOptions {
+    /// Enable strict mode (treats warnings as errors)
+    pub strict: bool,
+    /// Check props type definitions
+    pub check_props: bool,
+    /// Check emits type definitions
+    pub check_emits: bool,
+    /// Check template bindings
+    pub check_template_bindings: bool,
+}
+
+impl Default for LspTypeCheckOptions {
+    fn default() -> Self {
+        Self {
+            strict: true, // Strict by default for IDE integration
+            check_props: true,
+            check_emits: true,
+            check_template_bindings: true,
+        }
+    }
+}
 
 /// Type checking service for providing type diagnostics and information.
 pub struct TypeService;
 
 impl TypeService {
-    /// Collect type diagnostics for a document.
-    pub fn collect_diagnostics(
+    /// Collect type diagnostics for a document using the strict type checker.
+    pub fn collect_diagnostics(state: &ServerState, uri: &Url) -> Vec<Diagnostic> {
+        Self::collect_diagnostics_with_options(state, uri, &LspTypeCheckOptions::default())
+    }
+
+    /// Collect type diagnostics with custom options.
+    pub fn collect_diagnostics_with_options(
         state: &ServerState,
-        uri: &tower_lsp::lsp_types::Url,
+        uri: &Url,
+        lsp_options: &LspTypeCheckOptions,
     ) -> Vec<Diagnostic> {
+        let Some(doc) = state.documents.get(uri) else {
+            return vec![];
+        };
+
+        let content = doc.text();
+
+        // Use vize_vitrine's strict type checker
+        let options = TypeCheckOptions {
+            filename: uri.path().to_string(),
+            strict: lsp_options.strict,
+            check_props: lsp_options.check_props,
+            check_emits: lsp_options.check_emits,
+            check_template_bindings: lsp_options.check_template_bindings,
+            include_virtual_ts: false,
+        };
+
+        let result = type_check_sfc(&content, &options);
+
+        // Convert to LSP diagnostics
+        result
+            .diagnostics
+            .into_iter()
+            .map(|diag| {
+                let (start_line, start_col) = offset_to_line_col(&content, diag.start as usize);
+                let (end_line, end_col) = offset_to_line_col(&content, diag.end as usize);
+
+                // Build related information if present
+                let related_information: Option<Vec<DiagnosticRelatedInformation>> = if diag
+                    .related
+                    .is_empty()
+                {
+                    None
+                } else {
+                    Some(
+                        diag.related
+                            .iter()
+                            .map(|rel| {
+                                let (rel_start_line, rel_start_col) =
+                                    offset_to_line_col(&content, rel.start as usize);
+                                let (rel_end_line, rel_end_col) =
+                                    offset_to_line_col(&content, rel.end as usize);
+
+                                DiagnosticRelatedInformation {
+                                    location: Location {
+                                        uri: rel
+                                            .filename
+                                            .as_ref()
+                                            .and_then(|f| Url::parse(&format!("file://{}", f)).ok())
+                                            .unwrap_or_else(|| uri.clone()),
+                                        range: Range {
+                                            start: Position {
+                                                line: rel_start_line,
+                                                character: rel_start_col,
+                                            },
+                                            end: Position {
+                                                line: rel_end_line,
+                                                character: rel_end_col,
+                                            },
+                                        },
+                                    },
+                                    message: rel.message.clone(),
+                                }
+                            })
+                            .collect(),
+                    )
+                };
+
+                // Build help message
+                let message = if let Some(ref help) = diag.help {
+                    format!("{}\n\nHelp: {}", diag.message, help)
+                } else {
+                    diag.message.clone()
+                };
+
+                // Build code description URL
+                let code_description = diag.code.as_ref().map(|code| CodeDescription {
+                    href: Url::parse(&format!(
+                        "https://github.com/ubugeeei/vize/wiki/type-errors#{}",
+                        code
+                    ))
+                    .unwrap_or_else(|_| Url::parse("https://github.com/ubugeeei/vize").unwrap()),
+                });
+
+                Diagnostic {
+                    range: Range {
+                        start: Position {
+                            line: start_line,
+                            character: start_col,
+                        },
+                        end: Position {
+                            line: end_line,
+                            character: end_col,
+                        },
+                    },
+                    severity: Some(match diag.severity {
+                        TypeSeverity::Error => DiagnosticSeverity::ERROR,
+                        TypeSeverity::Warning => DiagnosticSeverity::WARNING,
+                        TypeSeverity::Info => DiagnosticSeverity::INFORMATION,
+                        TypeSeverity::Hint => DiagnosticSeverity::HINT,
+                    }),
+                    code: diag.code.map(NumberOrString::String),
+                    code_description,
+                    source: Some("vize/types".to_string()),
+                    message,
+                    related_information,
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    /// Collect diagnostics using the legacy vize_canon type checker.
+    /// This is kept for backwards compatibility and can be removed later.
+    #[deprecated(
+        note = "Use collect_diagnostics which uses the stricter vize_vitrine type checker"
+    )]
+    pub fn collect_diagnostics_legacy(state: &ServerState, uri: &Url) -> Vec<Diagnostic> {
         let Some(doc) = state.documents.get(uri) else {
             return vec![];
         };

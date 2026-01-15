@@ -95,6 +95,7 @@ impl AttrCategory {
         }
     }
 
+    #[allow(dead_code)]
     fn name(&self) -> &'static str {
         match self {
             AttrCategory::Definition => "DEFINITION (is)",
@@ -126,24 +127,9 @@ impl Rule for AttributeOrder {
         }
 
         let mut prev_category: Option<AttrCategory> = None;
-        let mut prev_prop_name: Option<String> = None;
 
         for prop in element.props.iter() {
             let category = AttrCategory::from_prop(prop);
-            let prop_name = match prop {
-                PropNode::Attribute(attr) => attr.name.to_string(),
-                PropNode::Directive(dir) => {
-                    let arg = dir
-                        .arg
-                        .as_ref()
-                        .map(|a| match a {
-                            ExpressionNode::Simple(s) => format!(":{}", s.content),
-                            _ => String::new(),
-                        })
-                        .unwrap_or_default();
-                    format!("v-{}{}", dir.name, arg)
-                }
-            };
 
             if let Some(prev_cat) = prev_category {
                 if category < prev_cat {
@@ -153,23 +139,14 @@ impl Rule for AttributeOrder {
                     };
 
                     ctx.warn_with_help(
-                        format!(
-                            "Attribute \"{}\" should be placed before \"{}\"",
-                            prop_name,
-                            prev_prop_name.as_deref().unwrap_or("previous attribute")
-                        ),
+                        "Attribute should be placed in correct order",
                         loc,
-                        format!(
-                            "Expected order: {} comes before {}",
-                            category.name(),
-                            prev_cat.name()
-                        ),
+                        "Follow recommended attribute ordering",
                     );
                 }
             }
 
             prev_category = Some(category);
-            prev_prop_name = Some(prop_name);
         }
     }
 }

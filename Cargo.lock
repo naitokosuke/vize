@@ -623,6 +623,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
+name = "env_home"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2955,7 +2961,19 @@ dependencies = [
 name = "vize_canon"
 version = "0.0.1-alpha.31"
 dependencies = [
+ "dashmap 6.1.0",
+ "insta",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "vize_atelier_core",
+ "vize_atelier_sfc",
  "vize_carton",
+ "vize_croquis",
+ "vize_relief",
+ "which",
 ]
 
 [[package]]
@@ -2977,13 +2995,19 @@ dependencies = [
 name = "vize_croquis"
 version = "0.0.1-alpha.31"
 dependencies = [
+ "dashmap 6.1.0",
  "once_cell",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
  "oxc_span",
  "phf",
+ "regex",
  "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "vize_armature",
  "vize_carton",
  "vize_relief",
 ]
@@ -3025,8 +3049,10 @@ dependencies = [
  "vize_atelier_sfc",
  "vize_canon",
  "vize_carton",
+ "vize_croquis",
  "vize_patina",
  "vize_relief",
+ "vize_vitrine",
 ]
 
 [[package]]
@@ -3094,6 +3120,7 @@ version = "0.0.1-alpha.31"
 dependencies = [
  "getrandom 0.3.4",
  "glob",
+ "insta",
  "js-sys",
  "napi",
  "napi-build",
@@ -3106,11 +3133,13 @@ dependencies = [
  "vize_atelier_dom",
  "vize_atelier_sfc",
  "vize_atelier_vapor",
+ "vize_canon",
  "vize_carton",
  "vize_croquis",
  "vize_glyph",
  "vize_musea",
  "vize_patina",
+ "vize_relief",
  "wasm-bindgen",
 ]
 
@@ -3204,6 +3233,18 @@ checksum = "9b32828d774c412041098d182a8b38b16ea816958e07cf40eec2bc080ae137ac"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "which"
+version = "7.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
+dependencies = [
+ "either",
+ "env_home",
+ "rustix",
+ "winsafe",
 ]
 
 [[package]]
@@ -3385,6 +3426,12 @@ checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wit-bindgen"

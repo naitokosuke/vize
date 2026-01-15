@@ -25,7 +25,7 @@ vize_atelier_vapor = { workspace = true }
 vize_atelier_sfc = { workspace = true, features = ["native"] }
 vize_glyph = { workspace = true }
 vize_patina = { workspace = true }
-vize_canon = { workspace = true }
+vize_canon = { workspace = true, features = ["native"] }
 vize_musea = { workspace = true }
 vize_maestro = { workspace = true }
 

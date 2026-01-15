@@ -37,12 +37,39 @@
 mod checker;
 mod context;
 mod diagnostic;
+pub mod sfc_typecheck;
 mod types;
+pub mod virtual_ts;
+
+#[cfg(feature = "native")]
+pub mod tsgo_bridge;
+
+#[cfg(feature = "native")]
+pub mod typecheck_service;
+
+#[cfg(all(test, feature = "native"))]
+mod tests;
 
 pub use checker::TypeChecker;
 pub use context::{Binding, BindingKind, Import, Prop, TypeContext};
 pub use diagnostic::{TypeDiagnostic, TypeSeverity};
+pub use sfc_typecheck::{
+    type_check_sfc, SfcRelatedLocation, SfcTypeCheckOptions, SfcTypeCheckResult, SfcTypeDiagnostic,
+    SfcTypeSeverity,
+};
 pub use types::{CompletionItem, CompletionKind, TypeInfo, TypeKind};
+
+#[cfg(feature = "native")]
+pub use tsgo_bridge::{
+    BatchTypeChecker, LspDiagnostic, LspPosition, LspRange, TsgoBridge, TsgoBridgeConfig,
+    TsgoBridgeError, TypeCheckResult, VIRTUAL_URI_SCHEME,
+};
+
+#[cfg(feature = "native")]
+pub use typecheck_service::{
+    SfcDiagnostic, SfcDiagnosticSeverity, SfcRelatedInfo,
+    SfcTypeCheckResult as TsgoTypeCheckResult, TypeCheckService, TypeCheckServiceOptions,
+};
 
 /// Check result from the type checker.
 #[derive(Debug, Clone, Default)]

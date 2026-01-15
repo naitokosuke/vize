@@ -73,7 +73,7 @@ impl Rule for NoTemplateLang {
                     ("lang='haml'", "haml"),
                 ];
 
-                for (pattern, lang_name) in lang_patterns {
+                for (pattern, _lang_name) in lang_patterns {
                     if tag_content.contains(pattern) {
                         let lang_pos = tag_content.find(pattern).unwrap_or(0);
                         let lang_start = template_start + lang_pos;
@@ -81,17 +81,14 @@ impl Rule for NoTemplateLang {
 
                         // Create fix to remove the lang attribute
                         let fix = Fix::new(
-                            format!("Remove {} template preprocessor", lang_name),
+                            "Remove template preprocessor",
                             TextEdit::delete(lang_start as u32, (lang_end + 1) as u32), // +1 for trailing space
                         );
 
                         ctx.report(
                             LintDiagnostic::warn(
                                 META.name,
-                                format!(
-                                    "Avoid using {} template preprocessor for better tooling support",
-                                    lang_name
-                                ),
+                                "Avoid using template preprocessor for better tooling support",
                                 template_start as u32,
                                 (template_start + tag_end + 1) as u32,
                             )

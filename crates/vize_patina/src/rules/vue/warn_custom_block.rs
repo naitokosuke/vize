@@ -105,17 +105,13 @@ impl Rule for WarnCustomBlock {
                     ctx.report(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Custom block <{}> detected. Ensure proper plugin configuration.",
-                                tag_name
-                            ),
+                            "Custom block detected. Ensure proper plugin configuration.",
                             abs_pos as u32,
                             close_pos as u32,
                         )
-                        .with_help(format!(
-                            "Custom blocks like <{}> require corresponding Vite/Webpack plugins to be processed",
-                            tag_name
-                        )),
+                        .with_help(
+                            "Custom blocks require corresponding Vite/Webpack plugins to be processed",
+                        ),
                     );
                 }
 

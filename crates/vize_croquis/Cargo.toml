@@ -12,6 +12,10 @@ vize_relief.workspace = true
 phf.workspace = true
 once_cell.workspace = true
 rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dashmap.workspace = true
+regex.workspace = true
 
 # OXC for high-performance AST parsing
 oxc_parser.workspace = true
@@ -20,3 +24,5 @@ oxc_span.workspace = true
 oxc_allocator.workspace = true
 
 [dev-dependencies]
+tempfile = "3.10"
+vize_armature.workspace = true

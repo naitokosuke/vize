@@ -42,6 +42,7 @@ pub mod builtins;
 pub mod css;
 pub mod display;
 pub mod hoist;
+pub mod import_resolver;
 pub mod macros;
 pub mod naming;
 pub mod optimization;
@@ -49,6 +50,7 @@ pub mod provide;
 pub mod reactivity;
 pub mod script_parser;
 pub mod types;
+pub mod virtual_ts;
 
 // Re-export commonly used utilities from vize_carton for convenience
 pub use vize_carton::{

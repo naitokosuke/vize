@@ -89,19 +89,10 @@ impl RequireSymbolProvide {
             let trimmed = after.trim_start();
 
             if trimmed.starts_with('\'') || trimmed.starts_with('"') || trimmed.starts_with('`') {
-                let fn_name = if pattern == "provide(" {
-                    "provide"
-                } else {
-                    "inject"
-                };
-
                 result.add_diagnostic(
                     LintDiagnostic::warn(
                         META.name,
-                        format!(
-                            "Consider using a Symbol key with {} instead of a string literal",
-                            fn_name
-                        ),
+                        "Consider using a Symbol key instead of a string literal",
                         (offset + abs_pos) as u32,
                         (offset + abs_pos + pattern.len()) as u32,
                     )

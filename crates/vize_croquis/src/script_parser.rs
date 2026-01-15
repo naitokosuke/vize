@@ -19,7 +19,10 @@ use oxc_span::{GetSpan, SourceType, Span};
 use crate::analysis::{
     BindingMetadata, InvalidExport, InvalidExportKind, TypeExport, TypeExportKind,
 };
-use crate::macros::{EmitDefinition, MacroKind, MacroTracker, ModelDefinition, PropDefinition};
+use crate::macros::{
+    EmitDefinition, MacroKind, MacroTracker, ModelDefinition, PropDefinition,
+    PropsDestructuredBindings,
+};
 use crate::reactivity::{ReactiveKind, ReactivityTracker};
 use crate::scope::{
     BlockKind, BlockScopeData, ClientOnlyScopeData, ClosureScopeData, ExternalModuleScopeData,
@@ -471,14 +474,30 @@ fn process_variable_declarator(
         }
 
         BindingPatternKind::ObjectPattern(obj) => {
-            // Check if this is destructuring from defineProps
+            // Check if this is destructuring from defineProps or withDefaults(defineProps())
             let is_define_props = declarator.init.as_ref().is_some_and(|init| {
-                if let Expression::CallExpression(call) = init {
-                    if let Expression::Identifier(id) = &call.callee {
-                        return id.name.as_str() == "defineProps";
+                match init {
+                    Expression::CallExpression(call) => {
+                        if let Expression::Identifier(id) = &call.callee {
+                            let name = id.name.as_str();
+                            if name == "defineProps" {
+                                return true;
+                            }
+                            // withDefaults(defineProps<...>(), {...})
+                            if name == "withDefaults" {
+                                if let Some(Argument::CallExpression(inner)) =
+                                    call.arguments.first()
+                                {
+                                    if let Expression::Identifier(inner_id) = &inner.callee {
+                                        return inner_id.name.as_str() == "defineProps";
+                                    }
+                                }
+                            }
+                        }
+                        false
                     }
+                    _ => false,
                 }
-                false
             });
 
             // If defineProps, process it first to extract prop definitions
@@ -488,18 +507,59 @@ fn process_variable_declarator(
                 }
             }
 
+            // Track props destructure bindings
+            let mut props_destructure = if is_define_props {
+                Some(PropsDestructuredBindings::default())
+            } else {
+                None
+            };
+
             // Handle object destructuring
             for prop in obj.properties.iter() {
-                if let Some(name) = get_binding_pattern_name(&prop.value.kind) {
+                // Get the key (prop name in defineProps)
+                let key_name = match &prop.key {
+                    PropertyKey::StaticIdentifier(id) => Some(id.name.as_str()),
+                    PropertyKey::StringLiteral(s) => Some(s.value.as_str()),
+                    _ => None,
+                };
+
+                if let Some(local_name) = get_binding_pattern_name(&prop.value.kind) {
                     // If destructuring from defineProps, use Props binding type
                     let binding_type = if is_define_props {
                         BindingType::Props
                     } else {
                         get_binding_type_from_kind(kind)
                     };
-                    result.bindings.add(&name, binding_type);
+                    result.bindings.add(&local_name, binding_type);
+
+                    // Track destructure binding
+                    if let Some(ref mut destructure) = props_destructure {
+                        let key = key_name
+                            .map(CompactString::new)
+                            .unwrap_or_else(|| CompactString::new(&local_name));
+
+                        // Extract default value if present (assignment pattern)
+                        let default_value = if prop.shorthand {
+                            // Check if the value is an assignment pattern with default
+                            if let BindingPatternKind::AssignmentPattern(assign) = &prop.value.kind
+                            {
+                                Some(CompactString::new(
+                                    &source[assign.right.span().start as usize
+                                        ..assign.right.span().end as usize],
+                                ))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        destructure.insert(key, CompactString::new(&local_name), default_value);
+                    }
                 }
             }
+
+            // Handle rest element
             if let Some(rest) = &obj.rest {
                 if let Some(name) = get_binding_pattern_name(&rest.argument.kind) {
                     let binding_type = if is_define_props {
@@ -508,6 +568,18 @@ fn process_variable_declarator(
                         get_binding_type_from_kind(kind)
                     };
                     result.bindings.add(&name, binding_type);
+
+                    // Track rest binding
+                    if let Some(ref mut destructure) = props_destructure {
+                        destructure.rest_id = Some(CompactString::new(&name));
+                    }
+                }
+            }
+
+            // Set props destructure in macro tracker
+            if let Some(destructure) = props_destructure {
+                if !destructure.is_empty() {
+                    result.macros.set_props_destructure(destructure);
                 }
             }
         }

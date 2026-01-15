@@ -6,6 +6,7 @@ import MuseaPlayground from './components/MuseaPlayground.vue';
 import PatinaPlayground from './components/PatinaPlayground.vue';
 import GlyphPlayground from './components/GlyphPlayground.vue';
 import CroquisPlayground from './components/CroquisPlayground.vue';
+import TypeCheckPlayground from './components/TypeCheckPlayground.vue';
 import { PRESETS, type PresetKey, type InputMode } from './presets';
 import { loadWasm, isWasmLoaded, isUsingMock, type CompilerOptions, type CompileResult, type SfcCompileResult, type CssCompileResult, type CssCompileOptions } from './wasm/index';
 import * as prettier from 'prettier/standalone';
@@ -15,9 +16,9 @@ import * as parserTypescript from 'prettier/plugins/typescript';
 import * as parserCss from 'prettier/plugins/postcss';
 import ts from 'typescript';
 
-// Main tab for switching between Atelier, Musea, Patina, Glyph, and Croquis
-type MainTab = 'atelier' | 'musea' | 'patina' | 'glyph' | 'croquis';
-const validTabs: MainTab[] = ['atelier', 'musea', 'patina', 'glyph', 'croquis'];
+// Main tab for switching between Atelier, Patina, Canon, Croquis, Musea, and Glyph
+type MainTab = 'atelier' | 'patina' | 'canon' | 'croquis' | 'musea' | 'glyph';
+const validTabs: MainTab[] = ['atelier', 'patina', 'canon', 'croquis', 'musea', 'glyph'];
 
 function getInitialTab(): MainTab {
   const params = new URLSearchParams(window.location.search);
@@ -599,11 +600,11 @@ onMounted(async () => {
           <span class="tab-desc">linter</span>
         </button>
         <button
-          :class="['main-tab', { active: mainTab === 'musea' }]"
-          @click="mainTab = 'musea'"
+          :class="['main-tab', { active: mainTab === 'canon' }]"
+          @click="mainTab = 'canon'"
         >
-          <span class="tab-name">Musea</span>
-          <span class="tab-desc">story</span>
+          <span class="tab-name">Canon</span>
+          <span class="tab-desc">typecheck</span>
         </button>
         <button
           :class="['main-tab', { active: mainTab === 'croquis' }]"
@@ -611,6 +612,13 @@ onMounted(async () => {
         >
           <span class="tab-name">Croquis</span>
           <span class="tab-desc">analyzer</span>
+        </button>
+        <button
+          :class="['main-tab', { active: mainTab === 'musea' }]"
+          @click="mainTab = 'musea'"
+        >
+          <span class="tab-name">Musea</span>
+          <span class="tab-desc">story</span>
         </button>
         <!-- Glyph tab hidden for now
         <button
@@ -650,19 +658,24 @@ onMounted(async () => {
     </header>
 
     <main class="main">
-      <!-- Musea View -->
-      <template v-if="mainTab === 'musea'">
-        <MuseaPlayground :compiler="compiler" />
+      <!-- Patina View -->
+      <template v-if="mainTab === 'patina'">
+        <PatinaPlayground :compiler="compiler" />
       </template>
 
-      <!-- Patina View -->
-      <template v-else-if="mainTab === 'patina'">
-        <PatinaPlayground :compiler="compiler" />
+      <!-- Canon (TypeCheck) View -->
+      <template v-else-if="mainTab === 'canon'">
+        <TypeCheckPlayground :compiler="compiler" />
       </template>
 
       <!-- Croquis View -->
       <template v-else-if="mainTab === 'croquis'">
         <CroquisPlayground :compiler="compiler" />
+      </template>
+
+      <!-- Musea View -->
+      <template v-else-if="mainTab === 'musea'">
+        <MuseaPlayground :compiler="compiler" />
       </template>
 
       <!-- Glyph View - hidden for now

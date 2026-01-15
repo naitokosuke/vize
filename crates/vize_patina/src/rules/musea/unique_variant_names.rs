@@ -41,7 +41,7 @@ impl MuseaRule for UniqueVariantNames {
                     result.add_diagnostic(
                         LintDiagnostic::error(
                             META.name,
-                            format!("Duplicate variant name '{}'", name),
+                            "Duplicate variant name",
                             abs_pos as u32,
                             (abs_pos + tag_end) as u32,
                         )

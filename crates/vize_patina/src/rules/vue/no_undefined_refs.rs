@@ -159,12 +159,9 @@ impl Rule for NoUndefinedRefs {
             for ident in identifiers {
                 if !ctx.is_variable_defined(ident) {
                     ctx.warn_with_help(
-                        format!("'{}' is not defined", ident),
+                        "Variable is not defined",
                         &interpolation.loc,
-                        format!(
-                            "Define '{}' in <script setup> or ensure it's imported",
-                            ident
-                        ),
+                        "Define in <script setup> or ensure it's imported",
                     );
                 }
             }
@@ -192,12 +189,9 @@ impl Rule for NoUndefinedRefs {
                     for ident in identifiers {
                         if !ctx.is_variable_defined(ident) {
                             ctx.warn_with_help(
-                                format!("'{}' is not defined", ident),
+                                "Variable is not defined",
                                 &dir.loc,
-                                format!(
-                                    "Define '{}' in <script setup> or ensure it's imported",
-                                    ident
-                                ),
+                                "Define in <script setup> or ensure it's imported",
                             );
                         }
                     }

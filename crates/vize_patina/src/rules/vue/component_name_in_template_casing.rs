@@ -20,9 +20,9 @@
 use crate::context::LintContext;
 use crate::diagnostic::Severity;
 use crate::rule::{Rule, RuleCategory, RuleMeta};
-use vize_carton::{hyphenate, is_html_tag, is_svg_tag};
+use vize_carton::{is_html_tag, is_svg_tag};
 use vize_croquis::builtins::is_builtin_component;
-use vize_croquis::naming::{is_kebab_case_loose, is_pascal_case, to_pascal_case};
+use vize_croquis::naming::{is_kebab_case_loose, is_pascal_case};
 use vize_relief::ast::ElementNode;
 
 static META: RuleMeta = RuleMeta {
@@ -77,21 +77,19 @@ impl Rule for ComponentNameInTemplateCasing {
         match self.casing {
             ComponentCasing::PascalCase => {
                 if !is_pascal_case(tag) {
-                    let pascal = to_pascal_case(tag);
                     ctx.warn_with_help(
-                        format!("Component `<{}>` should use PascalCase", tag),
+                        "Component should use PascalCase",
                         &element.loc,
-                        format!("Use `<{}>`", pascal),
+                        "Use PascalCase for component names",
                     );
                 }
             }
             ComponentCasing::KebabCase => {
                 if !is_kebab_case_loose(tag) {
-                    let kebab = hyphenate(tag);
                     ctx.warn_with_help(
-                        format!("Component `<{}>` should use kebab-case", tag),
+                        "Component should use kebab-case",
                         &element.loc,
-                        format!("Use `<{}>`", kebab),
+                        "Use kebab-case for component names",
                     );
                 }
             }

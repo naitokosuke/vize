@@ -61,7 +61,7 @@ impl ScriptRule for PreferUseId {
             (b"crypto.randomUUID()" as &[u8], "crypto.randomUUID()"),
         ];
 
-        for (pattern, name) in patterns {
+        for (pattern, _name) in patterns {
             let finder = memmem::Finder::new(pattern);
             let mut search_start = 0;
 
@@ -85,16 +85,11 @@ impl ScriptRule for PreferUseId {
                     result.add_diagnostic(
                         LintDiagnostic::warn(
                             META.name,
-                            format!(
-                                "Consider using useId() instead of {} for generating IDs (Vue 3.5+)",
-                                name
-                            ),
+                            "Consider using useId() for generating IDs (Vue 3.5+)",
                             (offset + abs_pos) as u32,
                             (offset + abs_pos + pattern.len()) as u32,
                         )
-                        .with_help(
-                            "useId() provides SSR-safe, unique IDs: `const id = useId()`",
-                        ),
+                        .with_help("useId() provides SSR-safe, unique IDs: `const id = useId()`"),
                     );
                 }
             }

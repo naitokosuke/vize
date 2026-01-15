@@ -62,7 +62,7 @@ impl CssRule for PreferSlotted {
             ("::v-deep ", "::v-deep without parentheses"),
         ];
 
-        for (pattern, desc) in deprecated_patterns {
+        for (pattern, _desc) in deprecated_patterns {
             let finder = memmem::Finder::new(pattern.as_bytes());
 
             let mut search_start = 0;
@@ -72,7 +72,7 @@ impl CssRule for PreferSlotted {
                 result.add_diagnostic(
                     LintDiagnostic::warn(
                         META.name,
-                        format!("Deprecated {} syntax", desc),
+                        "Deprecated deep selector syntax",
                         (offset + absolute_pos) as u32,
                         (offset + absolute_pos + pattern.len()) as u32,
                     )
