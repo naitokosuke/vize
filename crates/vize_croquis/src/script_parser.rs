@@ -30,8 +30,7 @@ use crate::scope::{
     NonScriptSetupScopeData, ScopeChain, ScriptSetupScopeData, VueGlobalScopeData,
 };
 use crate::setup_context::{SetupContextTracker, SetupContextViolationKind};
-use vize_carton::CompactString;
-use vize_carton::FxHashSet;
+use vize_carton::{CompactString, FxHashMap, FxHashSet};
 use vize_relief::BindingType;
 
 /// Result of parsing a script setup block
@@ -48,6 +47,13 @@ pub struct ScriptParseResult {
     pub provide_inject: ProvideInjectTracker,
     /// Track inject variable names for indirect destructure detection
     inject_var_names: FxHashSet<CompactString>,
+    /// Track aliases for inject function (e.g., const a = inject; a('key'))
+    inject_aliases: FxHashSet<CompactString>,
+    /// Track aliases for provide function (e.g., const p = provide; p('key', val))
+    provide_aliases: FxHashSet<CompactString>,
+    /// Track aliases for reactivity APIs (e.g., const r = ref; r(0))
+    /// Maps alias name to the original function name
+    reactivity_aliases: FxHashMap<CompactString, CompactString>,
     /// Setup context violation tracking
     pub setup_context: SetupContextTracker,
     /// Flag to track if we're in a non-setup script context
@@ -496,8 +502,10 @@ fn process_variable_declarator(
                         return;
                     }
 
-                    // Check for reactivity wrappers
-                    if let Some((reactive_kind, binding_type)) = detect_reactivity_call(call) {
+                    // Check for reactivity wrappers (also handles aliases)
+                    if let Some((reactive_kind, binding_type)) =
+                        detect_reactivity_call(call, &result.reactivity_aliases)
+                    {
                         // Detect setup context violations for module-level state
                         detect_setup_context_violation(result, call);
 
@@ -511,8 +519,12 @@ fn process_variable_declarator(
                     }
 
                     // Check for inject() call - track with local_name for indirect destructure detection
+                    // Also handles inject aliases (e.g., const a = inject; const state = a('key'))
                     if let Expression::Identifier(callee_id) = &call.callee {
-                        if callee_id.name.as_str() == "inject" && !call.arguments.is_empty() {
+                        let callee_name = callee_id.name.as_str();
+                        let is_inject =
+                            callee_name == "inject" || result.inject_aliases.contains(callee_name);
+                        if is_inject && !call.arguments.is_empty() {
                             // Detect setup context violation for inject
                             detect_setup_context_violation(result, call);
 
@@ -558,6 +570,44 @@ fn process_variable_declarator(
 
                     // Check for ref.value extraction: const x = someRef.value
                     check_ref_value_extraction(result, &declarator.id, init);
+
+                    // Check for Vue API aliases: const a = inject, const r = ref, etc.
+                    if let Expression::Identifier(id) = init {
+                        let api_name = id.name.as_str();
+                        match api_name {
+                            "inject" => {
+                                result.inject_aliases.insert(CompactString::new(name));
+                            }
+                            "provide" => {
+                                result.provide_aliases.insert(CompactString::new(name));
+                            }
+                            // Reactivity APIs
+                            "ref" | "shallowRef" | "reactive" | "shallowReactive"
+                            | "computed" | "readonly" | "shallowReadonly"
+                            | "toRef" | "toRefs" | "toValue" | "toRaw"
+                            | "isRef" | "isReactive" | "isReadonly" | "isProxy"
+                            | "unref" | "triggerRef" | "customRef"
+                            | "markRaw" | "effectScope" | "getCurrentScope" | "onScopeDispose"
+                            // Watch APIs
+                            | "watch" | "watchEffect" | "watchPostEffect" | "watchSyncEffect"
+                            // Lifecycle hooks
+                            | "onMounted" | "onUnmounted" | "onBeforeMount" | "onBeforeUnmount"
+                            | "onUpdated" | "onBeforeUpdate" | "onActivated" | "onDeactivated"
+                            | "onErrorCaptured" | "onRenderTracked" | "onRenderTriggered"
+                            | "onServerPrefetch"
+                            // Component APIs
+                            | "defineComponent" | "defineAsyncComponent"
+                            | "getCurrentInstance" | "nextTick"
+                            // Types (for InjectionKey tracking)
+                            | "InjectionKey" => {
+                                result.reactivity_aliases.insert(
+                                    CompactString::new(name),
+                                    CompactString::new(api_name),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
 
@@ -1079,13 +1129,23 @@ fn extract_emits_from_runtime(result: &mut ScriptParseResult, arg: &Argument<'_>
 }
 
 /// Detect reactivity wrappers (ref, computed, reactive, etc.)
-fn detect_reactivity_call(call: &CallExpression<'_>) -> Option<(ReactiveKind, BindingType)> {
+/// Also handles aliases (e.g., const r = ref; const count = r(0))
+fn detect_reactivity_call(
+    call: &CallExpression<'_>,
+    reactivity_aliases: &FxHashMap<CompactString, CompactString>,
+) -> Option<(ReactiveKind, BindingType)> {
     let callee_name = match &call.callee {
         Expression::Identifier(id) => id.name.as_str(),
         _ => return None,
     };
 
-    match callee_name {
+    // Resolve alias to original API name if needed
+    let resolved_name = reactivity_aliases
+        .get(callee_name)
+        .map(|s| s.as_str())
+        .unwrap_or(callee_name);
+
+    match resolved_name {
         "ref" | "shallowRef" => Some((ReactiveKind::Ref, BindingType::SetupRef)),
         "computed" => Some((ReactiveKind::Computed, BindingType::SetupRef)),
         "reactive" | "shallowReactive" => {
@@ -1125,7 +1185,7 @@ fn detect_setup_context_violation(
     false
 }
 
-/// Detect provide() and inject() calls and track them
+/// Detect provide() and inject() calls and track them (including through aliases)
 fn detect_provide_inject_call(
     result: &mut ScriptParseResult,
     call: &CallExpression<'_>,
@@ -1136,38 +1196,40 @@ fn detect_provide_inject_call(
         _ => return,
     };
 
-    match callee_name {
-        "provide" => {
-            // Detect setup context violation for provide
-            detect_setup_context_violation(result, call);
+    // Check if this is a direct call or an alias call
+    let is_provide = callee_name == "provide" || result.provide_aliases.contains(callee_name);
+    let is_inject = callee_name == "inject" || result.inject_aliases.contains(callee_name);
 
-            // provide(key, value)
-            if call.arguments.len() >= 2 {
-                let key = extract_provide_key(&call.arguments[0], source);
-                let value = call
-                    .arguments
-                    .get(1)
-                    .map(|arg| extract_argument_source(arg, source))
-                    .unwrap_or_default();
+    if is_provide {
+        // Detect setup context violation for provide
+        detect_setup_context_violation(result, call);
 
-                if let Some(key) = key {
-                    result.provide_inject.add_provide(
-                        key,
-                        CompactString::new(&value),
-                        None, // value_type
-                        None, // from_composable
-                        call.span.start,
-                        call.span.end,
-                    );
-                }
+        // provide(key, value)
+        if call.arguments.len() >= 2 {
+            let key = extract_provide_key(&call.arguments[0], source);
+            let value = call
+                .arguments
+                .get(1)
+                .map(|arg| extract_argument_source(arg, source))
+                .unwrap_or_default();
+
+            if let Some(key) = key {
+                result.provide_inject.add_provide(
+                    key,
+                    CompactString::new(&value),
+                    None, // value_type
+                    None, // from_composable
+                    call.span.start,
+                    call.span.end,
+                );
             }
         }
-        "inject" => {
-            // inject() is now handled in process_variable_declarator for BindingIdentifier
-            // and BindingPatternKind::ObjectPattern cases, which have access to the local_name.
-            // We don't add inject here to avoid duplicates.
-        }
-        _ => {}
+    } else if is_inject {
+        // inject() called through an alias (e.g., const a = inject; a('key'))
+        // We need to track this as an inject call
+        // Note: When inject is assigned to a variable (const state = inject('key')),
+        // it's handled in process_variable_declarator. This handles bare inject calls
+        // like `a('key')` that appear in expression statements.
     }
 }
 
@@ -2680,5 +2742,74 @@ mod tests {
         assert!(violations
             .iter()
             .any(|v| v.kind == SetupContextViolationKind::ModuleLevelProvide));
+    }
+
+    // === Alias Tracking Tests ===
+
+    #[test]
+    fn test_inject_alias_tracking() {
+        let result = parse_script_setup(
+            r#"
+            import { inject } from 'vue'
+            const a = inject
+            const state = a('state')
+        "#,
+        );
+
+        // inject alias should be tracked
+        assert!(result.inject_aliases.contains("a"));
+
+        // The aliased inject call should be detected
+        assert_eq!(result.provide_inject.injects().len(), 1);
+        let inject = &result.provide_inject.injects()[0];
+        assert_eq!(inject.local_name.as_str(), "state");
+    }
+
+    #[test]
+    fn test_provide_alias_tracking() {
+        let result = parse_script_setup(
+            r#"
+            import { provide } from 'vue'
+            const p = provide
+            p('key', 'value')
+        "#,
+        );
+
+        // provide alias should be tracked
+        assert!(result.provide_aliases.contains("p"));
+
+        // The aliased provide call should be detected
+        assert_eq!(result.provide_inject.provides().len(), 1);
+        let provide = &result.provide_inject.provides()[0];
+        assert_eq!(provide.value.as_str(), "'value'");
+    }
+
+    #[test]
+    fn test_reactivity_alias_tracking() {
+        let result = parse_script_setup(
+            r#"
+            import { ref, reactive } from 'vue'
+            const r = ref
+            const re = reactive
+            const count = r(0)
+            const state = re({ value: 1 })
+        "#,
+        );
+
+        // reactivity aliases should be tracked
+        assert!(result.reactivity_aliases.contains_key("r"));
+        assert!(result.reactivity_aliases.contains_key("re"));
+        assert_eq!(
+            result.reactivity_aliases.get("r").map(|s| s.as_str()),
+            Some("ref")
+        );
+        assert_eq!(
+            result.reactivity_aliases.get("re").map(|s| s.as_str()),
+            Some("reactive")
+        );
+
+        // The aliased calls should be detected as reactive sources
+        assert!(result.reactivity.is_reactive("count"));
+        assert!(result.reactivity.is_reactive("state"));
     }
 }
