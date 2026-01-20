@@ -186,8 +186,8 @@ export interface FormatResult {
   changed: boolean;
 }
 
-// Analysis (Croquis) types
-export interface AnalysisOptions {
+// Croquis types
+export interface CroquisOptions {
   filename?: string;
 }
 
@@ -307,6 +307,38 @@ export interface EmitDisplay {
   payload_type?: string;
 }
 
+// Provide key (string or symbol)
+export interface ProvideKey {
+  type: 'string' | 'symbol';
+  value: string;
+}
+
+// Provide entry from Rust analysis
+export interface ProvideDisplay {
+  key: ProvideKey;
+  value: string;
+  valueType?: string;
+  fromComposable?: string;
+  start: number;
+  end: number;
+}
+
+// Inject pattern
+export type InjectPattern = 'simple' | 'objectDestructure' | 'arrayDestructure';
+
+// Inject entry from Rust analysis
+export interface InjectDisplay {
+  key: ProvideKey;
+  localName: string;
+  defaultValue?: string;
+  expectedType?: string;
+  pattern: InjectPattern;
+  destructuredProps?: string[];
+  fromComposable?: string;
+  start: number;
+  end: number;
+}
+
 export interface CssDisplay {
   selector_count: number;
   unused_selectors: Array<{ text: string; start: number; end: number }>;
@@ -314,7 +346,7 @@ export interface CssDisplay {
   is_scoped: boolean;
 }
 
-export interface AnalysisStats {
+export interface CroquisStats {
   binding_count: number;
   unused_binding_count: number;
   scope_count: number;
@@ -325,7 +357,7 @@ export interface AnalysisStats {
   warning_count: number;
 }
 
-export interface AnalysisDiagnostic {
+export interface CroquisDiagnostic {
   severity: 'error' | 'warning' | 'info' | 'hint';
   message: string;
   start: number;
@@ -334,7 +366,7 @@ export interface AnalysisDiagnostic {
   related: Array<{ message: string; start: number; end: number }>;
 }
 
-export interface AnalysisSummary {
+export interface Croquis {
   component_name?: string;
   is_setup: boolean;
   bindings: BindingDisplay[];
@@ -342,16 +374,18 @@ export interface AnalysisSummary {
   macros: MacroDisplay[];
   props: PropDisplay[];
   emits: EmitDisplay[];
+  provides: ProvideDisplay[];
+  injects: InjectDisplay[];
   typeExports: TypeExportDisplay[];
   invalidExports: InvalidExportDisplay[];
   css?: CssDisplay;
-  diagnostics: AnalysisDiagnostic[];
-  stats: AnalysisStats;
+  diagnostics: CroquisDiagnostic[];
+  stats: CroquisStats;
 }
 
-export interface AnalysisResult {
-  summary: AnalysisSummary;
-  diagnostics: AnalysisDiagnostic[];
+export interface CroquisResult {
+  croquis: Croquis;
+  diagnostics: CroquisDiagnostic[];
   /** VIR (Vize Intermediate Representation) text format */
   vir?: string;
 }
@@ -404,6 +438,62 @@ export interface TypeCheckCapabilities {
   notes: string[];
 }
 
+// Cross-file analysis types
+export interface CrossFileOptions {
+  all?: boolean;
+  fallthroughAttrs?: boolean;
+  componentEmits?: boolean;
+  eventBubbling?: boolean;
+  provideInject?: boolean;
+  uniqueIds?: boolean;
+  serverClientBoundary?: boolean;
+  errorSuspenseBoundary?: boolean;
+  reactivityTracking?: boolean;
+  setupContext?: boolean;
+  circularDependencies?: boolean;
+  maxImportDepth?: number;
+  componentResolution?: boolean;
+  propsValidation?: boolean;
+}
+
+export interface CrossFileDiagnostic {
+  type: string;
+  code: string;
+  severity: 'error' | 'warning' | 'info' | 'hint';
+  message: string;
+  file: string;
+  offset: number;
+  endOffset: number;
+  relatedLocations?: Array<{
+    file: string;
+    offset: number;
+    message: string;
+  }>;
+  suggestion?: string;
+}
+
+export interface CrossFileStats {
+  filesAnalyzed: number;
+  vueComponents: number;
+  dependencyEdges: number;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  analysisTimeMs: number;
+}
+
+export interface CrossFileResult {
+  diagnostics: CrossFileDiagnostic[];
+  circularDependencies: string[][];
+  stats: CrossFileStats;
+  filePaths: string[];
+}
+
+export interface CrossFileInput {
+  path: string;
+  source: string;
+}
+
 export interface WasmModule {
   compile: (template: string, options: CompilerOptions) => CompileResult;
   compileVapor: (template: string, options: CompilerOptions) => CompileResult;
@@ -412,7 +502,8 @@ export interface WasmModule {
   parseSfc: (source: string, options: CompilerOptions) => SfcDescriptor;
   compileSfc: (source: string, options: CompilerOptions) => SfcCompileResult;
   // Analysis functions
-  analyzeSfc: (source: string, options: AnalysisOptions) => AnalysisResult;
+  analyzeSfc: (source: string, options: CroquisOptions) => CroquisResult;
+  analyzeCrossFile: (files: CrossFileInput[], options: CrossFileOptions) => CrossFileResult;
   // Musea functions
   parseArt: (source: string, options: ArtParseOptions) => ArtDescriptor;
   artToCsf: (source: string, options: ArtParseOptions) => CsfOutput;
@@ -435,7 +526,7 @@ export interface WasmModule {
     parse: (template: string, options: CompilerOptions) => object;
     parseSfc: (source: string, options: CompilerOptions) => SfcDescriptor;
     compileSfc: (source: string, options: CompilerOptions) => SfcCompileResult;
-    analyzeSfc: (source: string, options: AnalysisOptions) => AnalysisResult;
+    analyzeSfc: (source: string, options: CroquisOptions) => CroquisResult;
   };
 }
 
@@ -455,20 +546,28 @@ export async function loadWasm(): Promise<WasmModule> {
   loadPromise = (async () => {
     try {
       // Try to load the actual WASM module
+      // For --target web, we need to explicitly call init() before using exports
       const wasm = await import('./vize_vitrine.js');
-      await wasm.default();
+
+      // Initialize WASM - required for --target web
+      if (wasm.default) {
+        await wasm.default();
+      }
 
       // Get mock module to fill in any missing functions
       const mock = createMockModule();
 
       // Wrapper to transform WASM analyzeSfc output to expected TypeScript format
-      const transformAnalyzeSfc = (source: string, options: AnalysisOptions): AnalysisResult => {
+      const transformAnalyzeSfc = (source: string, options: CroquisOptions): CroquisResult => {
         if (!wasm.analyzeSfc) {
           return mock.analyzeSfc(source, options);
         }
 
         try {
           const rawResult = wasm.analyzeSfc(source, options);
+
+          // WASM returns data under 'croquis' key
+          const croquis = rawResult.croquis || rawResult;
 
           // Transform raw WASM scopes to expected ScopeDisplay format
           interface RawWasmScope {
@@ -483,7 +582,7 @@ export async function loadWasm(): Promise<WasmModule> {
             isTemplateScope?: boolean;
           }
 
-          const rawScopes: RawWasmScope[] = rawResult.scopes || [];
+          const rawScopes: RawWasmScope[] = croquis.scopes || [];
 
           // Build children map from parentIds
           const childrenMap = new Map<number, number[]>();
@@ -510,7 +609,7 @@ export async function loadWasm(): Promise<WasmModule> {
           }));
 
           // Transform bindings to match BindingDisplay interface
-          const bindings: BindingDisplay[] = (rawResult.bindings || []).map((b: { name: string; type: string }, i: number) => ({
+          const bindings: BindingDisplay[] = (croquis.bindings || []).map((b: { name: string; type: string }, i: number) => ({
             name: b.name,
             kind: b.type,
             source: 'script' as BindingSource,
@@ -532,11 +631,11 @@ export async function loadWasm(): Promise<WasmModule> {
             referenceCount: 1,
             bindable: true,
             usedInTemplate: true,
-            fromScriptSetup: rawResult.isScriptSetup || false,
+            fromScriptSetup: croquis.is_setup || false,
           }));
 
           // Transform macros from WASM
-          const macros: MacroDisplay[] = (rawResult.macros || []).map((m: { name: string; kind: string; start: number; end: number; typeArgs?: string }) => ({
+          const macros: MacroDisplay[] = (croquis.macros || []).map((m: { name: string; kind: string; start: number; end: number; typeArgs?: string }) => ({
             name: m.name,
             start: m.start,
             end: m.end,
@@ -544,46 +643,47 @@ export async function loadWasm(): Promise<WasmModule> {
           }));
 
           // Transform props from WASM
-          const props: PropDisplay[] = (rawResult.props || []).map((p: { name: string; required: boolean; hasDefault: boolean }) => ({
+          const props: PropDisplay[] = (croquis.props || []).map((p: { name: string; required: boolean; hasDefault: boolean }) => ({
             name: p.name,
             required: p.required,
             has_default: p.hasDefault,
           }));
 
           // Transform emits from WASM
-          const emits: EmitDisplay[] = (rawResult.emits || []).map((e: { name: string }) => ({
+          const emits: EmitDisplay[] = (croquis.emits || []).map((e: { name: string }) => ({
             name: e.name,
           }));
 
-          // Build AnalysisResult in expected format
-          const result: AnalysisResult = {
-            summary: {
-              is_setup: rawResult.isScriptSetup || false,
+          // Pass through provides and injects from WASM
+          const provides: ProvideDisplay[] = croquis.provides || [];
+          const injects: InjectDisplay[] = croquis.injects || [];
+
+          // Build CroquisResult in expected format
+          const result: CroquisResult = {
+            croquis: {
+              is_setup: croquis.is_setup || false,
               bindings,
               scopes,
               macros,
               props,
               emits,
-              typeExports: [],
-              invalidExports: [],
-              diagnostics: [],
-              stats: {
+              provides,
+              injects,
+              typeExports: croquis.typeExports || [],
+              invalidExports: croquis.invalidExports || [],
+              diagnostics: croquis.diagnostics || [],
+              stats: croquis.stats || {
                 binding_count: bindings.length,
-                unused_binding_count: (rawResult.unusedBindings || []).length,
+                unused_binding_count: 0,
                 scope_count: scopes.length,
                 macro_count: macros.length,
                 type_export_count: 0,
                 invalid_export_count: 0,
                 error_count: 0,
-                warning_count: (rawResult.undefinedRefs || []).length,
+                warning_count: 0,
               },
             },
-            diagnostics: (rawResult.undefinedRefs || []).map((r: { name: string; offset: number; context: string }) => ({
-              message: `Undefined reference: ${r.name}`,
-              start: r.offset,
-              end: r.offset + r.name.length,
-              severity: 'warning' as const,
-            })),
+            diagnostics: rawResult.diagnostics || [],
             // VIR (Vize Intermediate Representation) text from WASM
             vir: rawResult.vir || '',
           };
@@ -607,6 +707,8 @@ export async function loadWasm(): Promise<WasmModule> {
         // Note: Scope spans from WASM may be 0 (not tracked during analyze_script yet)
         // but macros, props, emits, bindings are properly extracted
         analyzeSfc: transformAnalyzeSfc,
+        // Cross-file analysis - use Rust CrossFileAnalyzer
+        analyzeCrossFile: wasm.analyzeCrossFile || mock.analyzeCrossFile,
         // Musea functions
         parseArt: wasm.parseArt || mock.parseArt,
         artToCsf: wasm.artToCsf || mock.artToCsf,
@@ -853,7 +955,7 @@ function createMockModule(): WasmModule {
   };
 
   // Mock analyze function - defined inline to avoid hoisting issues
-  const inlineMockAnalyzeSfc = (source: string, _options: AnalysisOptions): AnalysisResult => {
+  const inlineMockAnalyzeSfc = (source: string, _options: CroquisOptions): CroquisResult => {
     // Parse the SFC to extract information
     const hasScriptSetup = source.includes('<script setup');
     const hasDefineProps = source.includes('defineProps');
@@ -2010,13 +2112,58 @@ function createMockModule(): WasmModule {
     // Update stats with scope count
     vir = vir.replace('[stats]\n', `[stats]\nscopes = ${scopes.length}\n`);
 
-    const summary: AnalysisSummary = {
+    // Extract provides and injects from source
+    const provides: ProvideDisplay[] = [];
+    const injects: InjectDisplay[] = [];
+
+    // Extract provide() calls
+    const provideMatches = source.matchAll(/provide\s*\(\s*(['"])([^'"]+)\1\s*,\s*([^)]+)\)/g);
+    for (const match of provideMatches) {
+      provides.push({
+        key: { type: 'string', value: match[2] },
+        value: match[3].trim(),
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+      });
+    }
+
+    // Extract inject() calls - simple pattern
+    const injectMatches = source.matchAll(/(?:const|let)\s+(\w+)\s*=\s*inject\s*[^(]*\(\s*(['"])([^'"]+)\2(?:\s*,\s*([^)]+))?\)/g);
+    for (const match of injectMatches) {
+      injects.push({
+        key: { type: 'string', value: match[3] },
+        localName: match[1],
+        defaultValue: match[4]?.trim(),
+        pattern: 'simple',
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+      });
+    }
+
+    // Extract destructured inject() calls
+    const destructuredInjectMatches = source.matchAll(/const\s*\{\s*([^}]+)\s*\}\s*=\s*inject\s*[^(]*\(\s*(['"])([^'"]+)\2(?:\s*,\s*([^)]+))?\)/g);
+    for (const match of destructuredInjectMatches) {
+      const destructuredProps = match[1].split(',').map(p => p.trim().split(':')[0].trim());
+      injects.push({
+        key: { type: 'string', value: match[3] },
+        localName: `{${destructuredProps.join(', ')}}`,
+        defaultValue: match[4]?.trim(),
+        pattern: 'objectDestructure',
+        destructuredProps,
+        start: match.index || 0,
+        end: (match.index || 0) + match[0].length,
+      });
+    }
+
+    const croquis: Croquis = {
       is_setup: hasScriptSetup,
       bindings,
       scopes,
       macros,
       props,
       emits,
+      provides,
+      injects,
       typeExports,
       invalidExports,
       css: hasScoped ? {
@@ -2039,7 +2186,7 @@ function createMockModule(): WasmModule {
     };
 
     return {
-      summary,
+      croquis,
       diagnostics: [],
       vir,
     };
@@ -2064,7 +2211,7 @@ function createMockModule(): WasmModule {
     compileSfc(source: string, options: CompilerOptions): SfcCompileResult {
       return mockCompileSfc(source, options);
     }
-    analyzeSfc(source: string, options: AnalysisOptions): AnalysisResult {
+    analyzeSfc(source: string, options: CroquisOptions): CroquisResult {
       return inlineMockAnalyzeSfc(source, options);
     }
   }
@@ -3073,7 +3220,7 @@ function createMockModule(): WasmModule {
     ];
   };
 
-  const mockAnalyzeSfc = (source: string, _options: AnalysisOptions): AnalysisResult => {
+  const mockAnalyzeSfc = (source: string, _options: CroquisOptions): CroquisResult => {
     // Parse the SFC to extract information
     const hasScriptSetup = source.includes('<script setup');
     const hasDefineProps = source.includes('defineProps');
@@ -4369,7 +4516,7 @@ function createMockModule(): WasmModule {
       }
     }
 
-    const summary: AnalysisSummary = {
+    const croquis: Croquis = {
       is_setup: hasScriptSetup,
       bindings,
       scopes,
@@ -4398,7 +4545,7 @@ function createMockModule(): WasmModule {
     };
 
     return {
-      summary,
+      croquis,
       diagnostics: [],
       vir,
     };
@@ -4490,6 +4637,22 @@ function createMockModule(): WasmModule {
     };
   };
 
+  // Mock cross-file analyzer (returns empty results)
+  const mockAnalyzeCrossFile = (_files: CrossFileInput[], _options: CrossFileOptions): CrossFileResult => ({
+    diagnostics: [],
+    circularDependencies: [],
+    stats: {
+      filesAnalyzed: 0,
+      vueComponents: 0,
+      dependencyEdges: 0,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      analysisTimeMs: 0,
+    },
+    filePaths: [],
+  });
+
   return {
     compile: mockCompile,
     compileVapor: (template: string, options: CompilerOptions) =>
@@ -4499,6 +4662,7 @@ function createMockModule(): WasmModule {
     parseSfc: mockParseSfc,
     compileSfc: mockCompileSfc,
     analyzeSfc: mockAnalyzeSfc,
+    analyzeCrossFile: mockAnalyzeCrossFile,
     parseArt: mockParseArt,
     artToCsf: mockArtToCsf,
     lintTemplate: mockLintTemplate,

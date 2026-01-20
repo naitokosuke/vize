@@ -10,8 +10,8 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    Argument, BindingPatternKind, CallExpression, Declaration, Expression, ObjectPropertyKind,
-    PropertyKey, Statement, TSType, VariableDeclarationKind,
+    Argument, AssignmentTarget, BindingPatternKind, CallExpression, Declaration, Expression,
+    ObjectPropertyKind, PropertyKey, Statement, TSType, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType, Span};
@@ -23,12 +23,15 @@ use crate::macros::{
     EmitDefinition, MacroKind, MacroTracker, ModelDefinition, PropDefinition,
     PropsDestructuredBindings,
 };
+use crate::provide::{InjectPattern, ProvideInjectTracker, ProvideKey};
 use crate::reactivity::{ReactiveKind, ReactivityTracker};
 use crate::scope::{
     BlockKind, BlockScopeData, ClientOnlyScopeData, ClosureScopeData, ExternalModuleScopeData,
     NonScriptSetupScopeData, ScopeChain, ScriptSetupScopeData, VueGlobalScopeData,
 };
+use crate::setup_context::{SetupContextTracker, SetupContextViolationKind};
 use vize_carton::CompactString;
+use vize_carton::FxHashSet;
 use vize_relief::BindingType;
 
 /// Result of parsing a script setup block
@@ -41,6 +44,14 @@ pub struct ScriptParseResult {
     pub invalid_exports: Vec<InvalidExport>,
     /// Scope chain for tracking nested JavaScript scopes
     pub scopes: ScopeChain,
+    /// Provide/Inject tracking
+    pub provide_inject: ProvideInjectTracker,
+    /// Track inject variable names for indirect destructure detection
+    inject_var_names: FxHashSet<CompactString>,
+    /// Setup context violation tracking
+    pub setup_context: SetupContextTracker,
+    /// Flag to track if we're in a non-setup script context
+    is_non_setup_script: bool,
 }
 
 /// Setup global scopes hierarchy:
@@ -226,6 +237,7 @@ pub fn parse_script(source: &str) -> ScriptParseResult {
     let mut result = ScriptParseResult {
         bindings: BindingMetadata::new(), // Not script setup
         scopes: ScopeChain::with_capacity(16),
+        is_non_setup_script: true, // Mark as non-setup script for violation detection
         ..Default::default()
     };
 
@@ -306,6 +318,8 @@ fn process_statement(result: &mut ScriptParseResult, stmt: &Statement<'_>, sourc
         // Expression statements (may contain macro calls and callback scopes)
         Statement::ExpressionStatement(expr_stmt) => {
             if let Expression::CallExpression(call) = &expr_stmt.expression {
+                // Detect setup context violations (watch, onMounted, etc.)
+                detect_setup_context_violation(result, call);
                 process_call_expression(result, call, source);
             }
             // Walk the expression to find callback scopes
@@ -421,7 +435,38 @@ fn process_statement(result: &mut ScriptParseResult, stmt: &Statement<'_>, sourc
             });
         }
 
+        // Block statements at top level (scoped blocks)
+        Statement::BlockStatement(block) => {
+            result.scopes.enter_block_scope(
+                BlockScopeData {
+                    kind: BlockKind::Block,
+                },
+                block.span.start,
+                block.span.end,
+            );
+            for stmt in block.body.iter() {
+                walk_statement(result, stmt, source);
+            }
+            result.scopes.exit_scope();
+        }
+
         _ => {}
+    }
+}
+
+/// Extract a CallExpression from an expression, unwrapping type assertions (as/satisfies)
+fn extract_call_expression<'a>(expr: &'a Expression<'a>) -> Option<&'a CallExpression<'a>> {
+    match expr {
+        Expression::CallExpression(call) => Some(call),
+        Expression::TSAsExpression(ts_as) => extract_call_expression(&ts_as.expression),
+        Expression::TSSatisfiesExpression(ts_satisfies) => {
+            extract_call_expression(&ts_satisfies.expression)
+        }
+        Expression::TSNonNullExpression(ts_non_null) => {
+            extract_call_expression(&ts_non_null.expression)
+        }
+        Expression::ParenthesizedExpression(paren) => extract_call_expression(&paren.expression),
+        _ => None,
     }
 }
 
@@ -438,35 +483,82 @@ fn process_variable_declarator(
             let name = id.name.as_str();
 
             // Check if the init is a macro or reactivity call
-            if let Some(Expression::CallExpression(call)) = &declarator.init {
-                // Check for macro calls (defineProps, defineEmits, etc.)
-                if process_call_expression(result, call, source) {
-                    // Macro was processed, add binding
-                    let binding_type = get_binding_type_from_kind(kind);
-                    result.bindings.add(name, binding_type);
-                    // Walk into the call's callback arguments to track nested scopes
-                    walk_call_arguments(result, call, source);
-                    return;
-                }
+            // Use extract_call_expression to handle type assertions (as/satisfies)
+            let call_extracted =
+                if let Some(call) = declarator.init.as_ref().and_then(extract_call_expression) {
+                    // Check for macro calls (defineProps, defineEmits, etc.)
+                    if process_call_expression(result, call, source) {
+                        // Macro was processed, add binding
+                        let binding_type = get_binding_type_from_kind(kind);
+                        result.bindings.add(name, binding_type);
+                        // Walk into the call's callback arguments to track nested scopes
+                        walk_call_arguments(result, call, source);
+                        return;
+                    }
 
-                // Check for reactivity wrappers
-                if let Some((reactive_kind, binding_type)) = detect_reactivity_call(call) {
-                    result
-                        .reactivity
-                        .register(CompactString::new(name), reactive_kind, 0);
-                    result.bindings.add(name, binding_type);
-                    // Walk into the call's callback arguments to track nested scopes
-                    walk_call_arguments(result, call, source);
-                    return;
-                }
+                    // Check for reactivity wrappers
+                    if let Some((reactive_kind, binding_type)) = detect_reactivity_call(call) {
+                        // Detect setup context violations for module-level state
+                        detect_setup_context_violation(result, call);
 
-                // Not a known macro/reactivity, but still walk for nested scopes
-                walk_call_arguments(result, call, source);
-            }
+                        result
+                            .reactivity
+                            .register(CompactString::new(name), reactive_kind, 0);
+                        result.bindings.add(name, binding_type);
+                        // Walk into the call's callback arguments to track nested scopes
+                        walk_call_arguments(result, call, source);
+                        return;
+                    }
+
+                    // Check for inject() call - track with local_name for indirect destructure detection
+                    if let Expression::Identifier(callee_id) = &call.callee {
+                        if callee_id.name.as_str() == "inject" && !call.arguments.is_empty() {
+                            // Detect setup context violation for inject
+                            detect_setup_context_violation(result, call);
+
+                            if let Some(key) = extract_provide_key(&call.arguments[0], source) {
+                                let default_value = call.arguments.get(1).map(|arg| {
+                                    CompactString::new(extract_argument_source(arg, source))
+                                });
+                                let local_name = CompactString::new(name);
+                                // Track inject variable name for indirect destructure detection
+                                result.inject_var_names.insert(local_name.clone());
+                                result.provide_inject.add_inject(
+                                    key,
+                                    local_name, // local_name is the binding name
+                                    default_value,
+                                    None, // expected_type
+                                    InjectPattern::Simple,
+                                    None, // from_composable
+                                    call.span.start,
+                                    call.span.end,
+                                );
+                                // Walk into the call's callback arguments to track nested scopes
+                                walk_call_arguments(result, call, source);
+                                // Add binding and return
+                                let binding_type = get_binding_type_from_kind(kind);
+                                result.bindings.add(name, binding_type);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Not a known macro/reactivity/inject, but still walk for nested scopes
+                    walk_call_arguments(result, call, source);
+                    true // Call was extracted and processed
+                } else {
+                    false
+                };
 
             // Walk other expression types for nested scopes
-            if let Some(init) = &declarator.init {
-                walk_expression(result, init, source);
+            // Skip if we already extracted and processed a call expression to avoid double processing
+            if !call_extracted {
+                if let Some(init) = &declarator.init {
+                    walk_expression(result, init, source);
+
+                    // Check for ref.value extraction: const x = someRef.value
+                    check_ref_value_extraction(result, &declarator.id, init);
+                }
             }
 
             // Regular binding
@@ -500,6 +592,129 @@ fn process_variable_declarator(
                     _ => false,
                 }
             });
+
+            // Check if this is destructuring from inject() - this loses reactivity!
+            let inject_call = declarator.init.as_ref().and_then(|init| {
+                let call = extract_call_expression(init)?;
+                if let Expression::Identifier(id) = &call.callee {
+                    if id.name.as_str() == "inject" {
+                        return Some(call);
+                    }
+                }
+                None
+            });
+
+            // Check if this is indirect destructuring from an inject variable
+            // e.g., const state = inject('state'); const { count } = state;
+            let indirect_inject_var = declarator.init.as_ref().and_then(|init| {
+                if let Expression::Identifier(id) = init {
+                    let var_name = CompactString::new(id.name.as_str());
+                    if result.inject_var_names.contains(&var_name) {
+                        return Some((var_name, id.span.start));
+                    }
+                }
+                None
+            });
+
+            // Check if this is destructuring from a reactive variable
+            // e.g., const state = reactive({...}); const { count } = state;
+            let reactive_destructure_var = declarator.init.as_ref().and_then(|init| {
+                if let Expression::Identifier(id) = init {
+                    let var_name = CompactString::new(id.name.as_str());
+                    if result.reactivity.is_reactive(var_name.as_str()) {
+                        return Some((var_name, id.span.start, id.span.end));
+                    }
+                }
+                None
+            });
+
+            // Check if this is destructuring directly from reactive() or ref().value
+            // e.g., const { count } = reactive({ count: 0 })
+            let direct_reactive_call = declarator.init.as_ref().and_then(|init| {
+                let call = extract_call_expression(init)?;
+                if let Expression::Identifier(id) = &call.callee {
+                    let name = id.name.as_str();
+                    if matches!(name, "reactive" | "shallowReactive") {
+                        return Some((CompactString::new(name), call.span.start, call.span.end));
+                    }
+                }
+                None
+            });
+
+            // If inject(), track it with ObjectDestructure pattern
+            if let Some(call) = inject_call {
+                // Extract destructured property names
+                let mut destructured_props: Vec<CompactString> = Vec::new();
+                for prop in obj.properties.iter() {
+                    if let Some(name) = get_binding_pattern_name(&prop.value.kind) {
+                        destructured_props.push(CompactString::new(&name));
+                    }
+                }
+
+                // Extract inject key
+                if let Some(key) = call
+                    .arguments
+                    .first()
+                    .and_then(|arg| extract_provide_key(arg, source))
+                {
+                    result.provide_inject.add_inject(
+                        key,
+                        CompactString::new("(destructured)"),
+                        call.arguments
+                            .get(1)
+                            .map(|arg| CompactString::new(extract_argument_source(arg, source))),
+                        None,
+                        InjectPattern::ObjectDestructure(destructured_props.clone()),
+                        None,
+                        call.span.start,
+                        call.span.end,
+                    );
+                }
+            } else if let Some((inject_var, offset)) = indirect_inject_var {
+                // Indirect destructuring: const { count } = injectVar
+                let mut destructured_props: Vec<CompactString> = Vec::new();
+                for prop in obj.properties.iter() {
+                    if let Some(name) = get_binding_pattern_name(&prop.value.kind) {
+                        destructured_props.push(CompactString::new(&name));
+                    }
+                }
+
+                // Find the original inject entry and update it with indirect destructure info
+                // We need to record this as a new pattern variant
+                result.provide_inject.add_indirect_destructure(
+                    inject_var.clone(),
+                    destructured_props,
+                    offset,
+                );
+            } else if let Some((source_name, start, end)) = reactive_destructure_var {
+                // Destructuring reactive variable: const { count } = state
+                let mut destructured_props: Vec<CompactString> = Vec::new();
+                for prop in obj.properties.iter() {
+                    if let Some(name) = get_binding_pattern_name(&prop.value.kind) {
+                        destructured_props.push(CompactString::new(&name));
+                    }
+                }
+                result
+                    .reactivity
+                    .record_destructure(source_name, destructured_props, start, end);
+            } else if let Some((fn_name, start, end)) = direct_reactive_call {
+                // Direct destructuring: const { count } = reactive({ count: 0 })
+                let mut destructured_props: Vec<CompactString> = Vec::new();
+                for prop in obj.properties.iter() {
+                    if let Some(name) = get_binding_pattern_name(&prop.value.kind) {
+                        destructured_props.push(CompactString::new(&name));
+                    }
+                }
+                use crate::reactivity::{ReactivityLoss, ReactivityLossKind};
+                result.reactivity.add_loss(ReactivityLoss {
+                    kind: ReactivityLossKind::ReactiveDestructure {
+                        source_name: fn_name,
+                        destructured_props,
+                    },
+                    start,
+                    end,
+                });
+            }
 
             // If defineProps, process it first to extract prop definitions
             if is_define_props {
@@ -881,6 +1096,160 @@ fn detect_reactivity_call(call: &CallExpression<'_>) -> Option<(ReactiveKind, Bi
     }
 }
 
+/// Detect Vue API calls that violate setup context (CSRP/Memory Leak risks)
+/// Returns true if a violation was detected and recorded
+fn detect_setup_context_violation(
+    result: &mut ScriptParseResult,
+    call: &CallExpression<'_>,
+) -> bool {
+    // Only detect in non-setup scripts
+    if !result.is_non_setup_script {
+        return false;
+    }
+
+    let callee_name = match &call.callee {
+        Expression::Identifier(id) => id.name.as_str(),
+        _ => return false,
+    };
+
+    if let Some(kind) = SetupContextViolationKind::from_api_name(callee_name) {
+        result.setup_context.record_violation(
+            kind,
+            CompactString::new(callee_name),
+            call.span.start,
+            call.span.end,
+        );
+        return true;
+    }
+
+    false
+}
+
+/// Detect provide() and inject() calls and track them
+fn detect_provide_inject_call(
+    result: &mut ScriptParseResult,
+    call: &CallExpression<'_>,
+    source: &str,
+) {
+    let callee_name = match &call.callee {
+        Expression::Identifier(id) => id.name.as_str(),
+        _ => return,
+    };
+
+    match callee_name {
+        "provide" => {
+            // Detect setup context violation for provide
+            detect_setup_context_violation(result, call);
+
+            // provide(key, value)
+            if call.arguments.len() >= 2 {
+                let key = extract_provide_key(&call.arguments[0], source);
+                let value = call
+                    .arguments
+                    .get(1)
+                    .map(|arg| extract_argument_source(arg, source))
+                    .unwrap_or_default();
+
+                if let Some(key) = key {
+                    result.provide_inject.add_provide(
+                        key,
+                        CompactString::new(&value),
+                        None, // value_type
+                        None, // from_composable
+                        call.span.start,
+                        call.span.end,
+                    );
+                }
+            }
+        }
+        "inject" => {
+            // inject() is now handled in process_variable_declarator for BindingIdentifier
+            // and BindingPatternKind::ObjectPattern cases, which have access to the local_name.
+            // We don't add inject here to avoid duplicates.
+        }
+        _ => {}
+    }
+}
+
+/// Check for ref.value extraction to a plain variable (loses reactivity)
+/// e.g., `const x = someRef.value` or `const primitiveValue = countRef.value`
+#[inline]
+fn check_ref_value_extraction(
+    result: &mut ScriptParseResult,
+    id: &oxc_ast::ast::BindingPattern<'_>,
+    init: &Expression<'_>,
+) {
+    // Only check simple identifier bindings
+    let target_name = match &id.kind {
+        BindingPatternKind::BindingIdentifier(id) => id.name.as_str(),
+        _ => return,
+    };
+
+    // Check for ref.value pattern: someRef.value
+    if let Expression::StaticMemberExpression(member) = init {
+        if member.property.name.as_str() == "value" {
+            if let Expression::Identifier(obj_id) = &member.object {
+                let ref_name = CompactString::new(obj_id.name.as_str());
+                if result.reactivity.needs_value_access(ref_name.as_str()) {
+                    use crate::reactivity::{ReactivityLoss, ReactivityLossKind};
+                    result.reactivity.add_loss(ReactivityLoss {
+                        kind: ReactivityLossKind::RefValueExtract {
+                            source_name: ref_name,
+                            target_name: CompactString::new(target_name),
+                        },
+                        start: member.span.start,
+                        end: member.span.end,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Extract a provide/inject key from an argument
+fn extract_provide_key(arg: &Argument<'_>, source: &str) -> Option<ProvideKey> {
+    match arg {
+        Argument::StringLiteral(s) => {
+            Some(ProvideKey::String(CompactString::new(s.value.as_str())))
+        }
+        Argument::Identifier(id) => {
+            // Could be a Symbol or a variable reference - treat as Symbol for now
+            Some(ProvideKey::Symbol(CompactString::new(id.name.as_str())))
+        }
+        _ => {
+            // For complex expressions, extract source as string key
+            let expr_source = extract_argument_source(arg, source);
+            if !expr_source.is_empty() {
+                Some(ProvideKey::String(CompactString::new(&expr_source)))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Extract source code of an argument
+fn extract_argument_source(arg: &Argument<'_>, source: &str) -> String {
+    let span = match arg {
+        Argument::SpreadElement(s) => s.span,
+        Argument::Identifier(id) => id.span,
+        Argument::StringLiteral(s) => s.span,
+        Argument::NumericLiteral(n) => n.span,
+        Argument::BooleanLiteral(b) => b.span,
+        Argument::NullLiteral(n) => n.span,
+        Argument::ArrayExpression(a) => a.span,
+        Argument::ObjectExpression(o) => o.span,
+        Argument::FunctionExpression(f) => f.span,
+        Argument::ArrowFunctionExpression(a) => a.span,
+        Argument::CallExpression(c) => c.span,
+        _ => return String::new(),
+    };
+    source
+        .get(span.start as usize..span.end as usize)
+        .unwrap_or("")
+        .to_string()
+}
+
 /// Get binding type from variable declaration kind
 fn get_binding_type_from_kind(kind: VariableDeclarationKind) -> BindingType {
     match kind {
@@ -1137,6 +1506,17 @@ fn walk_expression(result: &mut ScriptParseResult, expr: &Expression<'_>, source
                         walk_expression(result, &p.value, source);
                     }
                     ObjectPropertyKind::SpreadProperty(spread) => {
+                        // Check for reactive spread: { ...state }
+                        if let Expression::Identifier(id) = &spread.argument {
+                            let var_name = CompactString::new(id.name.as_str());
+                            if result.reactivity.is_reactive(var_name.as_str()) {
+                                result.reactivity.record_spread(
+                                    var_name,
+                                    spread.span.start,
+                                    spread.span.end,
+                                );
+                            }
+                        }
                         walk_expression(result, &spread.argument, source);
                     }
                 }
@@ -1165,7 +1545,28 @@ fn walk_expression(result: &mut ScriptParseResult, expr: &Expression<'_>, source
 
         // Assignment
         Expression::AssignmentExpression(assign) => {
+            // Check for reactive variable reassignment: state = newValue
+            if let AssignmentTarget::AssignmentTargetIdentifier(id) = &assign.left {
+                let var_name = CompactString::new(id.name.as_str());
+                if result.reactivity.is_reactive(var_name.as_str()) {
+                    // Use id.span for the variable name, assign.span for the full expression
+                    result
+                        .reactivity
+                        .record_reassign(var_name, id.span.start, assign.span.end);
+                }
+            }
             walk_expression(result, &assign.right, source);
+        }
+
+        // TypeScript type assertions (as, satisfies, !)
+        Expression::TSAsExpression(ts_as) => {
+            walk_expression(result, &ts_as.expression, source);
+        }
+        Expression::TSSatisfiesExpression(ts_satisfies) => {
+            walk_expression(result, &ts_satisfies.expression, source);
+        }
+        Expression::TSNonNullExpression(ts_non_null) => {
+            walk_expression(result, &ts_non_null.expression, source);
         }
 
         // Other expressions don't need walking for scopes
@@ -1178,6 +1579,9 @@ fn walk_expression(result: &mut ScriptParseResult, expr: &Expression<'_>, source
 fn walk_call_arguments(result: &mut ScriptParseResult, call: &CallExpression<'_>, source: &str) {
     // First, walk the callee (might be a chained call like foo.bar().baz())
     walk_expression(result, &call.callee, source);
+
+    // Check for provide/inject calls
+    detect_provide_inject_call(result, call, source);
 
     // Check if this is a client-only lifecycle hook
     let is_lifecycle_hook = if let Expression::Identifier(id) = &call.callee {
@@ -1323,11 +1727,15 @@ fn walk_statement(result: &mut ScriptParseResult, stmt: &Statement<'_>, source: 
             walk_expression(result, &expr_stmt.expression, source);
         }
         Statement::VariableDeclaration(var_decl) => {
-            // Add variable bindings to current scope
+            // Add variable bindings to current scope and check for reactivity losses
             for decl in var_decl.declarations.iter() {
                 add_binding_pattern_to_scope(result, &decl.id, decl.span.start);
                 if let Some(init) = &decl.init {
                     walk_expression(result, init, source);
+
+                    // Check for ref.value extraction: const x = someRef.value
+                    // This also applies in block scopes (e.g., { const x = countRef.value })
+                    check_ref_value_extraction(result, &decl.id, init);
                 }
             }
         }
@@ -1884,5 +2292,393 @@ mod tests {
         } else {
             panic!("Expected closure scope data");
         }
+    }
+
+    #[test]
+    fn test_inject_direct_destructure() {
+        use crate::provide::InjectPattern;
+
+        let result = parse_script_setup(
+            r#"
+            const { name, age } = inject('user')
+        "#,
+        );
+
+        assert_eq!(result.provide_inject.injects().len(), 1);
+        let inject = &result.provide_inject.injects()[0];
+        match &inject.pattern {
+            InjectPattern::ObjectDestructure(props) => {
+                assert!(props.iter().any(|p| p.as_str() == "name"));
+                assert!(props.iter().any(|p| p.as_str() == "age"));
+            }
+            _ => panic!("Expected ObjectDestructure pattern"),
+        }
+    }
+
+    #[test]
+    fn test_inject_indirect_destructure() {
+        use crate::provide::InjectPattern;
+
+        let result = parse_script_setup(
+            r#"
+            const state = inject('state')
+            const { count, name } = state
+        "#,
+        );
+
+        assert_eq!(result.provide_inject.injects().len(), 1);
+        let inject = &result.provide_inject.injects()[0];
+        match &inject.pattern {
+            InjectPattern::IndirectDestructure {
+                inject_var, props, ..
+            } => {
+                assert_eq!(inject_var.as_str(), "state");
+                assert!(props.iter().any(|p| p.as_str() == "count"));
+                assert!(props.iter().any(|p| p.as_str() == "name"));
+            }
+            _ => panic!(
+                "Expected IndirectDestructure pattern, got {:?}",
+                inject.pattern
+            ),
+        }
+    }
+
+    #[test]
+    fn test_inject_simple_no_destructure() {
+        use crate::provide::InjectPattern;
+
+        let result = parse_script_setup(
+            r#"
+            const theme = inject('theme')
+        "#,
+        );
+
+        assert_eq!(result.provide_inject.injects().len(), 1);
+        let inject = &result.provide_inject.injects()[0];
+        assert!(matches!(inject.pattern, InjectPattern::Simple));
+    }
+
+    #[test]
+    fn test_inject_with_later_non_inject_destructure() {
+        use crate::provide::InjectPattern;
+
+        let result = parse_script_setup(
+            r#"
+            const theme = inject('theme')
+            const obj = { a: 1, b: 2 }
+            const { a, b } = obj
+        "#,
+        );
+
+        // The inject should remain Simple because `obj` is not an inject variable
+        assert_eq!(result.provide_inject.injects().len(), 1);
+        let inject = &result.provide_inject.injects()[0];
+        assert!(matches!(inject.pattern, InjectPattern::Simple));
+    }
+
+    #[test]
+    fn test_reactive_destructure_loss() {
+        use crate::reactivity::ReactivityLossKind;
+
+        let result = parse_script_setup(
+            r#"
+            const state = reactive({ count: 0, name: 'test' })
+            const { count, name } = state
+        "#,
+        );
+
+        assert!(result.reactivity.has_losses());
+        let losses = result.reactivity.losses();
+        assert_eq!(losses.len(), 1);
+        match &losses[0].kind {
+            ReactivityLossKind::ReactiveDestructure {
+                source_name,
+                destructured_props,
+            } => {
+                assert_eq!(source_name.as_str(), "state");
+                assert!(destructured_props.iter().any(|p| p.as_str() == "count"));
+                assert!(destructured_props.iter().any(|p| p.as_str() == "name"));
+            }
+            _ => panic!("Expected ReactiveDestructure, got {:?}", losses[0].kind),
+        }
+    }
+
+    #[test]
+    fn test_direct_reactive_destructure_loss() {
+        use crate::reactivity::ReactivityLossKind;
+
+        let result = parse_script_setup(
+            r#"
+            const { count } = reactive({ count: 0 })
+        "#,
+        );
+
+        assert!(result.reactivity.has_losses());
+        let losses = result.reactivity.losses();
+        assert_eq!(losses.len(), 1);
+        match &losses[0].kind {
+            ReactivityLossKind::ReactiveDestructure {
+                destructured_props, ..
+            } => {
+                assert!(destructured_props.iter().any(|p| p.as_str() == "count"));
+            }
+            _ => panic!("Expected ReactiveDestructure, got {:?}", losses[0].kind),
+        }
+    }
+
+    #[test]
+    fn test_reactive_spread_loss() {
+        use crate::reactivity::ReactivityLossKind;
+
+        let result = parse_script_setup(
+            r#"
+            const state = reactive({ count: 0 })
+            const copy = { ...state }
+        "#,
+        );
+
+        assert!(result.reactivity.has_losses());
+        let losses = result.reactivity.losses();
+        assert_eq!(losses.len(), 1);
+        match &losses[0].kind {
+            ReactivityLossKind::ReactiveSpread { source_name } => {
+                assert_eq!(source_name.as_str(), "state");
+            }
+            _ => panic!("Expected ReactiveSpread, got {:?}", losses[0].kind),
+        }
+    }
+
+    #[test]
+    fn test_ref_value_extract_loss() {
+        use crate::reactivity::ReactivityLossKind;
+
+        let result = parse_script_setup(
+            r#"
+            const count = ref(0)
+            const value = count.value
+        "#,
+        );
+
+        assert!(result.reactivity.has_losses());
+        let losses = result.reactivity.losses();
+        assert_eq!(losses.len(), 1);
+        match &losses[0].kind {
+            ReactivityLossKind::RefValueExtract {
+                source_name,
+                target_name,
+            } => {
+                assert_eq!(source_name.as_str(), "count");
+                assert_eq!(target_name.as_str(), "value");
+            }
+            _ => panic!("Expected RefValueExtract, got {:?}", losses[0].kind),
+        }
+    }
+
+    #[test]
+    fn test_ref_value_extract_in_block_scope() {
+        use crate::reactivity::ReactivityLossKind;
+
+        let result = parse_script_setup(
+            r#"
+            const countRef = ref(0)
+            {
+                const primitiveValue = countRef.value
+            }
+        "#,
+        );
+
+        assert!(result.reactivity.has_losses());
+        let losses = result.reactivity.losses();
+        assert_eq!(losses.len(), 1);
+        match &losses[0].kind {
+            ReactivityLossKind::RefValueExtract {
+                source_name,
+                target_name,
+            } => {
+                assert_eq!(source_name.as_str(), "countRef");
+                assert_eq!(target_name.as_str(), "primitiveValue");
+            }
+            _ => panic!("Expected RefValueExtract, got {:?}", losses[0].kind),
+        }
+    }
+
+    #[test]
+    fn test_no_loss_for_non_reactive() {
+        let result = parse_script_setup(
+            r#"
+            const obj = { count: 0 }
+            const { count } = obj
+        "#,
+        );
+
+        assert!(!result.reactivity.has_losses());
+    }
+
+    #[test]
+    fn test_no_loss_for_torefs() {
+        let result = parse_script_setup(
+            r#"
+            const state = reactive({ count: 0 })
+            const { count } = toRefs(state)
+        "#,
+        );
+
+        // toRefs returns refs, so destructuring is safe - no loss should be recorded
+        // for the toRefs call itself (it's the correct pattern)
+        // Note: We only detect direct reactive destructure, not toRefs
+        assert!(!result.reactivity.has_losses());
+    }
+
+    // === Setup Context Violation Tests ===
+
+    #[test]
+    fn test_setup_context_module_level_ref() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        // parse_script is for non-setup scripts, so violations should be detected
+        let result = parse_script(
+            r#"
+            import { ref } from 'vue'
+            const counter = ref(0)
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        assert_eq!(result.setup_context.count(), 1);
+        assert_eq!(
+            result.setup_context.violations()[0].kind,
+            SetupContextViolationKind::ModuleLevelState
+        );
+        assert_eq!(
+            result.setup_context.violations()[0].api_name.as_str(),
+            "ref"
+        );
+    }
+
+    #[test]
+    fn test_setup_context_module_level_reactive() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        let result = parse_script(
+            r#"
+            import { reactive } from 'vue'
+            const state = reactive({ count: 0 })
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        assert_eq!(result.setup_context.count(), 1);
+        assert_eq!(
+            result.setup_context.violations()[0].kind,
+            SetupContextViolationKind::ModuleLevelState
+        );
+    }
+
+    #[test]
+    fn test_setup_context_module_level_watch() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        let result = parse_script(
+            r#"
+            import { ref, watch } from 'vue'
+            const counter = ref(0)
+            watch(counter, (val) => console.log(val))
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        // Should have 2 violations: ref and watch
+        assert_eq!(result.setup_context.count(), 2);
+
+        let violations = result.setup_context.violations();
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelState));
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelWatch));
+    }
+
+    #[test]
+    fn test_setup_context_module_level_computed() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        let result = parse_script(
+            r#"
+            import { ref, computed } from 'vue'
+            const counter = ref(0)
+            const doubled = computed(() => counter.value * 2)
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        assert_eq!(result.setup_context.count(), 2);
+
+        let violations = result.setup_context.violations();
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelState));
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelComputed));
+    }
+
+    #[test]
+    fn test_setup_context_module_level_lifecycle() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        let result = parse_script(
+            r#"
+            import { onMounted, onUnmounted } from 'vue'
+            onMounted(() => console.log('mounted'))
+            onUnmounted(() => console.log('unmounted'))
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        assert_eq!(result.setup_context.count(), 2);
+
+        let violations = result.setup_context.violations();
+        assert!(violations
+            .iter()
+            .all(|v| v.kind == SetupContextViolationKind::ModuleLevelLifecycle));
+    }
+
+    #[test]
+    fn test_setup_context_no_violations_in_script_setup() {
+        // parse_script_setup should NOT detect violations - these are valid in setup
+        let result = parse_script_setup(
+            r#"
+            import { ref, computed, watch, onMounted } from 'vue'
+            const counter = ref(0)
+            const doubled = computed(() => counter.value * 2)
+            watch(counter, (val) => console.log(val))
+            onMounted(() => console.log('mounted'))
+        "#,
+        );
+
+        assert!(!result.setup_context.has_violations());
+    }
+
+    #[test]
+    fn test_setup_context_provide_inject_violation() {
+        use crate::setup_context::SetupContextViolationKind;
+
+        let result = parse_script(
+            r#"
+            import { provide, inject } from 'vue'
+            const theme = inject('theme')
+            provide('counter', 0)
+        "#,
+        );
+
+        assert!(result.setup_context.has_violations());
+        let violations = result.setup_context.violations();
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelInject));
+        assert!(violations
+            .iter()
+            .any(|v| v.kind == SetupContextViolationKind::ModuleLevelProvide));
     }
 }
