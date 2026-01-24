@@ -1345,6 +1345,9 @@ onUnmounted(() => {
             <div class="output-header-bar">
               <span class="output-title">Generated TypeScript</span>
             </div>
+            <div class="virtual-ts-notice">
+              Virtual TS is generated internally for type checking. It is not portable and the format may change without notice.
+            </div>
             <div v-if="typeCheckResult.virtualTs" class="editor-container">
               <MonacoEditor
                 :model-value="typeCheckResult.virtualTs"
@@ -1889,6 +1892,17 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.virtual-ts-notice {
+  padding: 0.5rem 0.75rem;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  color: #fbbf24;
+  line-height: 1.4;
+  margin-bottom: 0.5rem;
 }
 
 .virtualts-output .editor-container {

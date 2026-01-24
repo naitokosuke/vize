@@ -4,11 +4,21 @@
 //! - Template expressions and directives
 //! - Script bindings and imports
 //! - CSS properties and Vue-specific selectors
+//! - Real completions from tsgo (when available)
+//!
+//! Uses vize_croquis for accurate scope analysis and type information.
+
+use std::sync::Arc;
 
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionResponse,
     Documentation, InsertTextFormat, MarkupContent, MarkupKind,
 };
+use vize_croquis::{Analyzer, AnalyzerOptions};
+use vize_relief::BindingType;
+
+#[cfg(feature = "native")]
+use vize_canon::{LspCompletionItem, LspDocumentation, TsgoBridge};
 
 use super::IdeContext;
 use crate::virtual_code::BlockType;
@@ -35,6 +45,198 @@ impl CompletionService {
             None
         } else {
             Some(CompletionResponse::Array(items))
+        }
+    }
+
+    /// Get completions with tsgo support (async version).
+    #[cfg(feature = "native")]
+    pub async fn complete_with_tsgo(
+        ctx: &IdeContext<'_>,
+        tsgo_bridge: Option<Arc<TsgoBridge>>,
+    ) -> Option<CompletionResponse> {
+        // Check if this is an Art file
+        if ctx.uri.path().ends_with(".art.vue") {
+            return Self::complete_art(ctx);
+        }
+
+        let block_type = ctx.block_type?;
+
+        // Try tsgo completion first
+        if let Some(bridge) = tsgo_bridge {
+            let tsgo_items = match block_type {
+                BlockType::Template => Self::complete_template_with_tsgo(ctx, &bridge).await,
+                BlockType::Script => Self::complete_script_with_tsgo(ctx, false, &bridge).await,
+                BlockType::ScriptSetup => Self::complete_script_with_tsgo(ctx, true, &bridge).await,
+                BlockType::Style(_) => vec![],
+            };
+
+            if !tsgo_items.is_empty() {
+                // Merge tsgo items with static completions
+                let mut items = tsgo_items;
+                items.extend(match block_type {
+                    BlockType::Template => Self::directive_completions(),
+                    BlockType::Script => Self::composition_api_completions(),
+                    BlockType::ScriptSetup => {
+                        let mut v = Self::composition_api_completions();
+                        v.extend(Self::macro_completions());
+                        v
+                    }
+                    BlockType::Style(_) => Self::vue_css_completions(),
+                });
+
+                return Some(CompletionResponse::Array(items));
+            }
+        }
+
+        // Fall back to synchronous completions
+        Self::complete(ctx)
+    }
+
+    /// Get completions for template with tsgo.
+    #[cfg(feature = "native")]
+    async fn complete_template_with_tsgo(
+        ctx: &IdeContext<'_>,
+        bridge: &TsgoBridge,
+    ) -> Vec<CompletionItem> {
+        if let Some(ref virtual_docs) = ctx.virtual_docs {
+            if let Some(ref template) = virtual_docs.template {
+                if let Some(vts_offset) =
+                    crate::ide::hover::HoverService::sfc_to_virtual_ts_offset(ctx, ctx.offset)
+                {
+                    let (line, character) =
+                        super::offset_to_position(&template.content, vts_offset);
+                    let uri = format!("vize-virtual://{}.template.ts", ctx.uri.path());
+
+                    if bridge.is_initialized() {
+                        let _ = bridge
+                            .open_or_update_virtual_document(
+                                &format!("{}.template.ts", ctx.uri.path()),
+                                &template.content,
+                            )
+                            .await;
+
+                        if let Ok(items) = bridge.completion(&uri, line, character).await {
+                            return items
+                                .into_iter()
+                                .map(Self::convert_lsp_completion)
+                                .collect();
+                        }
+                    }
+                }
+            }
+        }
+
+        vec![]
+    }
+
+    /// Get completions for script with tsgo.
+    #[cfg(feature = "native")]
+    async fn complete_script_with_tsgo(
+        ctx: &IdeContext<'_>,
+        is_setup: bool,
+        bridge: &TsgoBridge,
+    ) -> Vec<CompletionItem> {
+        if let Some(ref virtual_docs) = ctx.virtual_docs {
+            let script_doc = if is_setup {
+                virtual_docs.script_setup.as_ref()
+            } else {
+                virtual_docs.script.as_ref()
+            };
+
+            if let Some(script) = script_doc {
+                if let Some(vts_offset) =
+                    crate::ide::hover::HoverService::sfc_to_virtual_ts_script_offset(
+                        ctx, ctx.offset,
+                    )
+                {
+                    let (line, character) = super::offset_to_position(&script.content, vts_offset);
+                    let suffix = if is_setup { "setup.ts" } else { "script.ts" };
+                    let uri = format!("vize-virtual://{}.{}", ctx.uri.path(), suffix);
+
+                    if bridge.is_initialized() {
+                        let _ = bridge
+                            .open_or_update_virtual_document(
+                                &format!("{}.{}", ctx.uri.path(), suffix),
+                                &script.content,
+                            )
+                            .await;
+
+                        if let Ok(items) = bridge.completion(&uri, line, character).await {
+                            return items
+                                .into_iter()
+                                .map(Self::convert_lsp_completion)
+                                .collect();
+                        }
+                    }
+                }
+            }
+        }
+
+        vec![]
+    }
+
+    /// Convert tsgo LspCompletionItem to tower-lsp CompletionItem.
+    #[cfg(feature = "native")]
+    fn convert_lsp_completion(item: LspCompletionItem) -> CompletionItem {
+        CompletionItem {
+            label: item.label,
+            kind: item.kind.map(Self::convert_completion_kind),
+            detail: item.detail,
+            documentation: item.documentation.map(|doc| match doc {
+                LspDocumentation::String(s) => Documentation::String(s),
+                LspDocumentation::Markup(m) => Documentation::MarkupContent(MarkupContent {
+                    kind: if m.kind == "markdown" {
+                        MarkupKind::Markdown
+                    } else {
+                        MarkupKind::PlainText
+                    },
+                    value: m.value,
+                }),
+            }),
+            insert_text: item.insert_text,
+            insert_text_format: item.insert_text_format.map(|f| {
+                if f == 2 {
+                    InsertTextFormat::SNIPPET
+                } else {
+                    InsertTextFormat::PLAIN_TEXT
+                }
+            }),
+            filter_text: item.filter_text,
+            sort_text: item.sort_text,
+            ..Default::default()
+        }
+    }
+
+    /// Convert LSP completion item kind number to CompletionItemKind.
+    #[cfg(feature = "native")]
+    fn convert_completion_kind(kind: u32) -> CompletionItemKind {
+        match kind {
+            1 => CompletionItemKind::TEXT,
+            2 => CompletionItemKind::METHOD,
+            3 => CompletionItemKind::FUNCTION,
+            4 => CompletionItemKind::CONSTRUCTOR,
+            5 => CompletionItemKind::FIELD,
+            6 => CompletionItemKind::VARIABLE,
+            7 => CompletionItemKind::CLASS,
+            8 => CompletionItemKind::INTERFACE,
+            9 => CompletionItemKind::MODULE,
+            10 => CompletionItemKind::PROPERTY,
+            11 => CompletionItemKind::UNIT,
+            12 => CompletionItemKind::VALUE,
+            13 => CompletionItemKind::ENUM,
+            14 => CompletionItemKind::KEYWORD,
+            15 => CompletionItemKind::SNIPPET,
+            16 => CompletionItemKind::COLOR,
+            17 => CompletionItemKind::FILE,
+            18 => CompletionItemKind::REFERENCE,
+            19 => CompletionItemKind::FOLDER,
+            20 => CompletionItemKind::ENUM_MEMBER,
+            21 => CompletionItemKind::CONSTANT,
+            22 => CompletionItemKind::STRUCT,
+            23 => CompletionItemKind::EVENT,
+            24 => CompletionItemKind::OPERATOR,
+            25 => CompletionItemKind::TYPE_PARAMETER,
+            _ => CompletionItemKind::TEXT,
         }
     }
 
@@ -205,20 +407,105 @@ impl CompletionService {
         // Add built-in components
         items.extend(Self::builtin_component_completions());
 
-        // Add script setup bindings
-        if let Some(ref virtual_docs) = ctx.virtual_docs {
-            if let Some(ref script_setup) = virtual_docs.script_setup {
-                let bindings =
-                    crate::virtual_code::extract_simple_bindings(&script_setup.content, true);
-                for binding in bindings {
+        // Use vize_croquis for accurate scope analysis and type information
+        let options = vize_atelier_sfc::SfcParseOptions {
+            filename: ctx.uri.path().to_string(),
+            ..Default::default()
+        };
+
+        if let Ok(descriptor) = vize_atelier_sfc::parse_sfc(&ctx.content, options) {
+            // Analyze script setup with croquis
+            if let Some(ref script_setup) = descriptor.script_setup {
+                let mut analyzer = Analyzer::with_options(AnalyzerOptions {
+                    analyze_script: true,
+                    ..Default::default()
+                });
+                analyzer.analyze_script_setup(&script_setup.content);
+                let croquis = analyzer.finish();
+
+                // Add bindings with accurate type information
+                for (name, binding_type) in croquis.bindings.iter() {
+                    let (kind, type_detail, doc) =
+                        Self::binding_type_to_completion_info(binding_type);
                     items.push(CompletionItem {
-                        label: binding.clone(),
-                        kind: Some(CompletionItemKind::VARIABLE),
+                        label: name.to_string(),
+                        kind: Some(kind),
                         label_details: Some(CompletionItemLabelDetails {
-                            detail: Some(" (script setup)".to_string()),
+                            detail: Some(type_detail.clone()),
                             description: None,
                         }),
-                        detail: Some("Binding from <script setup>".to_string()),
+                        detail: Some(type_detail),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: doc,
+                        })),
+                        sort_text: Some(format!("0{}", name)), // Prioritize user bindings
+                        ..Default::default()
+                    });
+                }
+
+                // Add props with type information
+                for prop in croquis.macros.props() {
+                    let prop_type = prop
+                        .prop_type
+                        .as_ref()
+                        .map(|t| t.as_str())
+                        .unwrap_or("unknown");
+                    let required = if prop.required { "" } else { "?" };
+
+                    items.push(CompletionItem {
+                        label: prop.name.to_string(),
+                        kind: Some(CompletionItemKind::PROPERTY),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(format!(": {}{}", prop_type, required)),
+                            description: None,
+                        }),
+                        detail: Some(format!("prop: {}", prop_type)),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!(
+                                "**Prop** `{}`\n\n```typescript\n{}: {}{}\n```\n\n{}",
+                                prop.name,
+                                prop.name,
+                                prop_type,
+                                if prop.required { "" } else { " // optional" },
+                                if prop.default_value.is_some() {
+                                    "Has default value"
+                                } else {
+                                    ""
+                                }
+                            ),
+                        })),
+                        sort_text: Some(format!("0{}", prop.name)), // Prioritize props
+                        ..Default::default()
+                    });
+                }
+
+                // Add reactive sources with special handling
+                for source in croquis.reactivity.sources() {
+                    let kind_str = source.kind.to_display();
+                    items.push(CompletionItem {
+                        label: source.name.to_string(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(format!(" ({})", kind_str)),
+                            description: None,
+                        }),
+                        detail: Some(format!("Reactive: {}", kind_str)),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: format!(
+                                "**{}** `{}`\n\n{}\n\nAuto-unwrapped in template.",
+                                kind_str,
+                                source.name,
+                                if source.kind.needs_value_access() {
+                                    "Needs `.value` in script"
+                                } else {
+                                    "Direct access (no `.value` needed)"
+                                }
+                            ),
+                        })),
+                        sort_text: Some(format!("0{}", source.name)),
                         ..Default::default()
                     });
                 }
@@ -231,8 +518,81 @@ impl CompletionService {
         items
     }
 
+    /// Convert BindingType to completion item information.
+    fn binding_type_to_completion_info(
+        binding_type: BindingType,
+    ) -> (CompletionItemKind, String, String) {
+        match binding_type {
+            BindingType::SetupRef => (
+                CompletionItemKind::VARIABLE,
+                " (ref)".to_string(),
+                "**Ref**\n\nReactive reference. Auto-unwrapped in template, needs `.value` in script.".to_string(),
+            ),
+            BindingType::SetupMaybeRef => (
+                CompletionItemKind::VARIABLE,
+                " (maybeRef)".to_string(),
+                "**MaybeRef**\n\nPossibly a ref (from toRef/toRefs). Auto-unwrapped in template.".to_string(),
+            ),
+            BindingType::SetupReactiveConst => (
+                CompletionItemKind::VARIABLE,
+                " (reactive)".to_string(),
+                "**Reactive**\n\nReactive object. Direct access without `.value`.".to_string(),
+            ),
+            BindingType::SetupConst => (
+                CompletionItemKind::CONSTANT,
+                " (const)".to_string(),
+                "**Const**\n\nConstant binding (function, class, or literal).".to_string(),
+            ),
+            BindingType::SetupLet => (
+                CompletionItemKind::VARIABLE,
+                " (let)".to_string(),
+                "**Let**\n\nMutable variable.".to_string(),
+            ),
+            BindingType::Props => (
+                CompletionItemKind::PROPERTY,
+                " (prop)".to_string(),
+                "**Prop**\n\nComponent property from defineProps.".to_string(),
+            ),
+            BindingType::PropsAliased => (
+                CompletionItemKind::PROPERTY,
+                " (prop alias)".to_string(),
+                "**Aliased Prop**\n\nDestructured prop with alias.".to_string(),
+            ),
+            BindingType::Data => (
+                CompletionItemKind::VARIABLE,
+                " (data)".to_string(),
+                "**Data**\n\nReactive data property (Options API).".to_string(),
+            ),
+            BindingType::Options => (
+                CompletionItemKind::METHOD,
+                " (options)".to_string(),
+                "**Options**\n\nComputed or method (Options API).".to_string(),
+            ),
+            BindingType::LiteralConst => (
+                CompletionItemKind::CONSTANT,
+                " (literal)".to_string(),
+                "**Literal**\n\nLiteral constant value.".to_string(),
+            ),
+            BindingType::ExternalModule => (
+                CompletionItemKind::MODULE,
+                " (import)".to_string(),
+                "**Import**\n\nImported from external module.".to_string(),
+            ),
+            BindingType::VueGlobal => (
+                CompletionItemKind::VARIABLE,
+                " (vue)".to_string(),
+                "**Vue Global**\n\nVue global ($refs, $emit, etc.).".to_string(),
+            ),
+            _ => (
+                CompletionItemKind::VARIABLE,
+                "".to_string(),
+                "Binding from script.".to_string(),
+            ),
+        }
+    }
+
     /// Get completions for script context.
-    fn complete_script(_ctx: &IdeContext, is_setup: bool) -> Vec<CompletionItem> {
+    fn complete_script(ctx: &IdeContext, is_setup: bool) -> Vec<CompletionItem> {
         let mut items = Vec::new();
 
         // Add Vue Composition API
@@ -245,6 +605,97 @@ impl CompletionService {
 
         // Add common imports
         items.extend(Self::import_completions());
+
+        // Use vize_croquis for accurate bindings in script
+        let options = vize_atelier_sfc::SfcParseOptions {
+            filename: ctx.uri.path().to_string(),
+            ..Default::default()
+        };
+
+        if let Ok(descriptor) = vize_atelier_sfc::parse_sfc(&ctx.content, options) {
+            let script = if is_setup {
+                descriptor.script_setup.as_ref()
+            } else {
+                descriptor.script.as_ref()
+            };
+
+            if let Some(script) = script {
+                let mut analyzer = Analyzer::with_options(AnalyzerOptions {
+                    analyze_script: true,
+                    ..Default::default()
+                });
+
+                if is_setup {
+                    analyzer.analyze_script_setup(&script.content);
+                } else {
+                    analyzer.analyze_script_plain(&script.content);
+                }
+
+                let croquis = analyzer.finish();
+
+                // Add bindings with type information
+                for (name, binding_type) in croquis.bindings.iter() {
+                    let (kind, type_detail, doc) =
+                        Self::binding_type_to_completion_info(binding_type);
+
+                    // For refs in script, add .value hint
+                    let needs_value = matches!(
+                        binding_type,
+                        BindingType::SetupRef | BindingType::SetupMaybeRef
+                    );
+
+                    items.push(CompletionItem {
+                        label: name.to_string(),
+                        kind: Some(kind),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(type_detail.clone()),
+                            description: if needs_value {
+                                Some(".value".to_string())
+                            } else {
+                                None
+                            },
+                        }),
+                        detail: Some(type_detail),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: doc,
+                        })),
+                        sort_text: Some(format!("0{}", name)),
+                        ..Default::default()
+                    });
+                }
+
+                // Add reactive sources
+                for source in croquis.reactivity.sources() {
+                    let needs_value = source.kind.needs_value_access();
+                    let kind_str = source.kind.to_display();
+
+                    items.push(CompletionItem {
+                        label: source.name.to_string(),
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        label_details: Some(CompletionItemLabelDetails {
+                            detail: Some(kind_str.to_string()),
+                            description: if needs_value {
+                                Some(".value".to_string())
+                            } else {
+                                None
+                            },
+                        }),
+                        detail: Some(kind_str.to_string()),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: if needs_value {
+                                "Needs `.value` access in script.".to_string()
+                            } else {
+                                "Direct access (no `.value` needed).".to_string()
+                            },
+                        })),
+                        sort_text: Some(format!("0{}", source.name)),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
 
         items
     }
@@ -769,5 +1220,26 @@ mod tests {
         assert!(chars.contains(&"<".to_string()));
         assert!(chars.contains(&":".to_string()));
         assert!(chars.contains(&"@".to_string()));
+    }
+
+    #[test]
+    fn test_binding_type_to_completion_info() {
+        // Test ref binding
+        let (kind, detail, _) =
+            CompletionService::binding_type_to_completion_info(BindingType::SetupRef);
+        assert_eq!(kind, CompletionItemKind::VARIABLE);
+        assert!(detail.contains("ref"));
+
+        // Test const binding
+        let (kind, detail, _) =
+            CompletionService::binding_type_to_completion_info(BindingType::SetupConst);
+        assert_eq!(kind, CompletionItemKind::CONSTANT);
+        assert!(detail.contains("const"));
+
+        // Test props binding
+        let (kind, detail, _) =
+            CompletionService::binding_type_to_completion_info(BindingType::Props);
+        assert_eq!(kind, CompletionItemKind::PROPERTY);
+        assert!(detail.contains("prop"));
     }
 }

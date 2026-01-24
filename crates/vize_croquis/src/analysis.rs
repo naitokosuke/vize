@@ -214,6 +214,8 @@ pub struct TemplateExpression {
     pub end: u32,
     /// The scope this expression belongs to
     pub scope_id: crate::scope::ScopeId,
+    /// v-if guard condition (if this expression is inside a v-if block)
+    pub vif_guard: Option<CompactString>,
 }
 
 /// Kind of template expression.
@@ -321,6 +323,16 @@ impl Croquis {
     /// Convert analysis summary to VIR (Vize Intermediate Representation) text format.
     ///
     /// This generates a TOML-like human-readable representation of the analysis.
+    ///
+    /// # Important
+    ///
+    /// **VIR is a display format only, not a portable representation.**
+    ///
+    /// - VIR output is intended for debugging and human inspection
+    /// - The format may change between versions without notice
+    /// - Do not parse VIR output or use it as a stable interface
+    /// - For programmatic access, use the `Croquis` struct fields directly
+    ///
     /// Performance: Pre-allocates buffer, uses write! macro for zero-copy formatting.
     pub fn to_vir(&self) -> String {
         use crate::macros::MacroKind;

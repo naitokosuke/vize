@@ -667,6 +667,9 @@ function getScopeColorClass(kind: string): string {
               <span class="vir-title">VIR — Vize Intermediate Representation</span>
               <span class="vir-line-count">{{ virLines.length }} lines</span>
             </div>
+            <div class="vir-notice">
+              VIR is a human-readable display format for debugging purposes only. It is not portable and should not be parsed or used as a stable interface.
+            </div>
             <div class="vir-content">
               <div class="vir-line-numbers">
                 <span v-for="(_, i) in virLines" :key="i" class="vir-ln">{{ i + 1 }}</span>
@@ -1521,6 +1524,16 @@ function getScopeColorClass(kind: string): string {
   font-size: 0.625rem;
   color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
+}
+
+.vir-notice {
+  padding: 0.5rem 0.75rem;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-top: none;
+  font-size: 0.6875rem;
+  color: #fbbf24;
+  line-height: 1.4;
 }
 
 .vir-content {

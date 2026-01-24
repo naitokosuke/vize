@@ -15,8 +15,8 @@ use tower_lsp::{Client, LanguageServer};
 use crate::document::DocumentStore;
 use crate::ide::{
     CodeActionService, CodeLensService, CompletionService, DefinitionService, DiagnosticService,
-    HoverService, IdeContext, ReferencesService, RenameService, SemanticTokensService,
-    WorkspaceSymbolsService,
+    DocumentLinkService, HoverService, IdeContext, InlayHintService, ReferencesService,
+    RenameService, SemanticTokensService, WorkspaceSymbolsService,
 };
 
 /// The Maestro LSP server.
@@ -43,7 +43,13 @@ impl MaestroServer {
 
     /// Publish diagnostics for a document.
     async fn publish_diagnostics(&self, uri: &Url) {
+        // Use async version when native feature is enabled (includes tsgo diagnostics)
+        #[cfg(feature = "native")]
+        let diagnostics = DiagnosticService::collect_async(&self.state, uri).await;
+
+        #[cfg(not(feature = "native"))]
         let diagnostics = DiagnosticService::collect(&self.state, uri);
+
         self.client
             .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
@@ -96,11 +102,135 @@ impl MaestroServer {
             },
         ]
     }
+
+    /// Get lint rule documentation for diagnostics at the given position.
+    fn get_lint_hover_at_position(
+        &self,
+        uri: &Url,
+        _content: &str,
+        position: Position,
+    ) -> Option<String> {
+        // Get diagnostics for this document
+        let diagnostics = DiagnosticService::collect(&self.state, uri);
+
+        // Find lint diagnostics at this position
+        let lint_diags: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                // Check if position is within diagnostic range
+                let in_range = position.line >= d.range.start.line
+                    && position.line <= d.range.end.line
+                    && (position.line != d.range.start.line
+                        || position.character >= d.range.start.character)
+                    && (position.line != d.range.end.line
+                        || position.character <= d.range.end.character);
+
+                // Only include lint diagnostics (from patina)
+                let is_lint = d
+                    .source
+                    .as_ref()
+                    .is_some_and(|s| s == "vize/lint" || s == "vize/musea");
+
+                in_range && is_lint
+            })
+            .collect();
+
+        if lint_diags.is_empty() {
+            return None;
+        }
+
+        // Format lint info as markdown
+        let mut markdown = String::new();
+
+        for diag in lint_diags {
+            let severity_icon = match diag.severity {
+                Some(DiagnosticSeverity::ERROR) => "🔴",
+                Some(DiagnosticSeverity::WARNING) => "🟡",
+                Some(DiagnosticSeverity::INFORMATION) => "🔵",
+                Some(DiagnosticSeverity::HINT) => "💡",
+                _ => "⚪",
+            };
+
+            // Rule name as header
+            if let Some(NumberOrString::String(ref rule)) = diag.code {
+                markdown.push_str(&format!("### {} {}\n\n", severity_icon, rule));
+            }
+
+            // Message (split into message and help if present)
+            let parts: Vec<&str> = diag.message.split("\n\nHelp: ").collect();
+            markdown.push_str(parts[0]);
+            markdown.push_str("\n\n");
+
+            // Help text (if present)
+            if parts.len() > 1 {
+                markdown.push_str(&format!("**Help:** {}\n\n", parts[1]));
+            }
+
+            // Link to documentation
+            if let Some(ref code_desc) = diag.code_description {
+                markdown.push_str(&format!(
+                    "[📖 View rule documentation]({})\n\n",
+                    code_desc.href
+                ));
+            }
+
+            markdown.push_str("---\n\n");
+        }
+
+        // Remove trailing separator
+        if markdown.ends_with("---\n\n") {
+            markdown.truncate(markdown.len() - 5);
+        }
+
+        Some(markdown)
+    }
+
+    /// Merge hover content with lint information.
+    fn merge_hover_with_lint(hover: Option<Hover>, lint_info: String) -> Hover {
+        match hover {
+            Some(mut h) => {
+                // Append lint info to existing hover content
+                if let HoverContents::Markup(ref mut markup) = h.contents {
+                    markup.value.push_str("\n\n---\n\n");
+                    markup.value.push_str(&lint_info);
+                }
+                h
+            }
+            None => {
+                // Create new hover with just lint info
+                Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: lint_info,
+                    }),
+                    range: None,
+                }
+            }
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for MaestroServer {
-    async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // Set workspace root from root_uri or workspace_folders
+        #[cfg(feature = "native")]
+        {
+            if let Some(root_uri) = params.root_uri.as_ref() {
+                if let Ok(path) = root_uri.to_file_path() {
+                    tracing::info!("Setting workspace root: {:?}", path);
+                    self.state.set_workspace_root(path);
+                }
+            } else if let Some(folders) = params.workspace_folders.as_ref() {
+                if let Some(folder) = folders.first() {
+                    if let Ok(path) = folder.uri.to_file_path() {
+                        tracing::info!("Setting workspace root from folder: {:?}", path);
+                        self.state.set_workspace_root(path);
+                    }
+                }
+            }
+        }
+
         Ok(InitializeResult {
             capabilities: server_capabilities(),
             server_info: Some(ServerInfo {
@@ -184,13 +314,30 @@ impl LanguageServer for MaestroServer {
             crate::utils::position_to_offset_str(&content, position.line, position.character);
 
         // Use IdeContext and HoverService for context-aware hover
+        let mut hover_result: Option<Hover> = None;
+
         if let Some(ctx) = IdeContext::new(&self.state, uri, offset) {
-            if let Some(hover) = HoverService::hover(&ctx) {
-                return Ok(Some(hover));
+            // Try tsgo-based hover first (when native feature is enabled)
+            #[cfg(feature = "native")]
+            {
+                let tsgo_bridge = self.state.get_tsgo_bridge().await;
+                hover_result = HoverService::hover_with_tsgo(&ctx, tsgo_bridge).await;
+            }
+
+            // Fallback to sync hover
+            #[cfg(not(feature = "native"))]
+            {
+                hover_result = HoverService::hover(&ctx);
             }
         }
 
-        Ok(None)
+        // Check for lint diagnostics at this position and add info to hover
+        let lint_hover = self.get_lint_hover_at_position(uri, &content, position);
+        if let Some(lint_info) = lint_hover {
+            hover_result = Some(Self::merge_hover_with_lint(hover_result, lint_info));
+        }
+
+        Ok(hover_result)
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -221,6 +368,12 @@ impl LanguageServer for MaestroServer {
         }
     }
 
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        // Return the item as-is for now
+        // TODO: Add documentation, additional text edits, etc.
+        Ok(item)
+    }
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -238,6 +391,19 @@ impl LanguageServer for MaestroServer {
 
         // Use IdeContext and DefinitionService for go-to-definition
         if let Some(ctx) = IdeContext::new(&self.state, uri, offset) {
+            // Try tsgo-based definition first (when native feature is enabled)
+            #[cfg(feature = "native")]
+            {
+                let tsgo_bridge = self.state.get_tsgo_bridge().await;
+                if let Some(response) =
+                    DefinitionService::definition_with_tsgo(&ctx, tsgo_bridge).await
+                {
+                    return Ok(Some(response));
+                }
+            }
+
+            // Fallback to sync definition
+            #[cfg(not(feature = "native"))]
             if let Some(response) = DefinitionService::definition(&ctx) {
                 return Ok(Some(response));
             }
@@ -539,6 +705,122 @@ impl LanguageServer for MaestroServer {
             Ok(None)
         } else {
             Ok(Some(symbols))
+        }
+    }
+
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
+        let uri = &params.text_document.uri;
+
+        let Some(doc) = self.state.documents.get(uri) else {
+            return Ok(None);
+        };
+
+        let content = doc.text();
+        let links = DocumentLinkService::get_links(&content, uri);
+
+        if links.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(links))
+        }
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = &params.text_document.uri;
+        let range = params.range;
+
+        let Some(doc) = self.state.documents.get(uri) else {
+            return Ok(None);
+        };
+
+        let content = doc.text();
+        let hints = InlayHintService::get_hints(&content, uri, range);
+
+        if hints.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(hints))
+        }
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = &params.text_document.uri;
+
+        let Some(doc) = self.state.documents.get(uri) else {
+            return Ok(None);
+        };
+
+        let content = doc.text();
+        let mut ranges = Vec::new();
+
+        // Parse SFC to get block ranges
+        let options = vize_atelier_sfc::SfcParseOptions {
+            filename: uri.path().to_string(),
+            ..Default::default()
+        };
+
+        if let Ok(descriptor) = vize_atelier_sfc::parse_sfc(&content, options) {
+            // Template block
+            if let Some(ref template) = descriptor.template {
+                if template.loc.start_line < template.loc.end_line {
+                    ranges.push(FoldingRange {
+                        start_line: template.loc.start_line.saturating_sub(1) as u32,
+                        start_character: None,
+                        end_line: template.loc.end_line.saturating_sub(1) as u32,
+                        end_character: None,
+                        kind: Some(FoldingRangeKind::Region),
+                        collapsed_text: Some("template".to_string()),
+                    });
+                }
+            }
+
+            // Script setup block
+            if let Some(ref script) = descriptor.script_setup {
+                if script.loc.start_line < script.loc.end_line {
+                    ranges.push(FoldingRange {
+                        start_line: script.loc.start_line.saturating_sub(1) as u32,
+                        start_character: None,
+                        end_line: script.loc.end_line.saturating_sub(1) as u32,
+                        end_character: None,
+                        kind: Some(FoldingRangeKind::Region),
+                        collapsed_text: Some("script setup".to_string()),
+                    });
+                }
+            }
+
+            // Script block
+            if let Some(ref script) = descriptor.script {
+                if script.loc.start_line < script.loc.end_line {
+                    ranges.push(FoldingRange {
+                        start_line: script.loc.start_line.saturating_sub(1) as u32,
+                        start_character: None,
+                        end_line: script.loc.end_line.saturating_sub(1) as u32,
+                        end_character: None,
+                        kind: Some(FoldingRangeKind::Region),
+                        collapsed_text: Some("script".to_string()),
+                    });
+                }
+            }
+
+            // Style blocks
+            for style in &descriptor.styles {
+                if style.loc.start_line < style.loc.end_line {
+                    ranges.push(FoldingRange {
+                        start_line: style.loc.start_line.saturating_sub(1) as u32,
+                        start_character: None,
+                        end_line: style.loc.end_line.saturating_sub(1) as u32,
+                        end_character: None,
+                        kind: Some(FoldingRangeKind::Region),
+                        collapsed_text: Some("style".to_string()),
+                    });
+                }
+            }
+        }
+
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ranges))
         }
     }
 }
