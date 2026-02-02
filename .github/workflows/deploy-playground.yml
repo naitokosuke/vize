@@ -65,8 +65,10 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        working-directory: playground
         run: pnpm install
+
+      - name: Build npm packages
+        run: pnpm -r --filter './npm/*' run build
 
       - name: Build playground
         working-directory: playground
