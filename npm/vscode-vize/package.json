@@ -5,6 +5,7 @@
   "version": "0.0.1-alpha.11",
   "publisher": "vize",
   "license": "MIT",
+  "icon": "icons/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/ubugeeei/vize"
