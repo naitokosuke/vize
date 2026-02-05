@@ -7,8 +7,6 @@ use clap::Args;
 use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -18,7 +16,8 @@ pub struct CheckArgs {
     #[arg(default_value = "./**/*.vue")]
     pub patterns: Vec<String>,
 
-    /// Connect to check-server via Unix socket (faster for repeated checks)
+    /// Connect to check-server via Unix socket (faster for repeated checks, Unix only)
+    #[cfg(unix)]
     #[arg(long, short)]
     pub socket: Option<String>,
 
@@ -71,6 +70,7 @@ struct GeneratedFile {
 }
 
 /// Server response for check method
+#[cfg(unix)]
 #[derive(Deserialize)]
 struct ServerCheckResult {
     diagnostics: Vec<ServerDiagnostic>,
@@ -80,6 +80,7 @@ struct ServerCheckResult {
     error_count: usize,
 }
 
+#[cfg(unix)]
 #[derive(Deserialize)]
 struct ServerDiagnostic {
     message: String,
@@ -89,12 +90,14 @@ struct ServerDiagnostic {
     code: Option<String>,
 }
 
+#[cfg(unix)]
 #[derive(Deserialize)]
 struct JsonRpcResponse {
     result: Option<ServerCheckResult>,
     error: Option<JsonRpcError>,
 }
 
+#[cfg(unix)]
 #[derive(Deserialize)]
 struct JsonRpcError {
     #[allow(dead_code)]
@@ -103,7 +106,8 @@ struct JsonRpcError {
 }
 
 pub fn run(args: CheckArgs) {
-    // If socket is specified, use socket client mode
+    // If socket is specified, use socket client mode (Unix only)
+    #[cfg(unix)]
     if let Some(ref socket_path) = args.socket {
         run_with_socket(&args, socket_path);
         return;
@@ -114,7 +118,11 @@ pub fn run(args: CheckArgs) {
 }
 
 /// Run type checking via Unix socket connection to check-server
+#[cfg(unix)]
 fn run_with_socket(args: &CheckArgs, socket_path: &str) {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
     let start = Instant::now();
 
     // Collect files

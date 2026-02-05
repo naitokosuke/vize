@@ -11,6 +11,7 @@ permissions:
 
 env:
   CARGO_INCREMENTAL: 0
+  NPM_TAG: ${{ contains(github.ref_name, 'alpha') && 'alpha' || contains(github.ref_name, 'beta') && 'beta' || contains(github.ref_name, 'rc') && 'rc' || 'latest' }}
 
 jobs:
   # Build CLI binaries for all platforms
@@ -268,7 +269,7 @@ jobs:
 
       - name: Publish
         working-directory: npm/vize-native
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Publish fresco native packages to npm (using Trusted Publishing / OIDC)
   release-npm-fresco-native:
@@ -317,7 +318,7 @@ jobs:
 
       - name: Publish
         working-directory: npm/fresco-native
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Build and publish WASM package (using Trusted Publishing / OIDC)
   release-npm-wasm:
@@ -362,7 +363,7 @@ jobs:
 
       - name: Publish @vizejs/wasm
         working-directory: npm/vize-wasm
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Build and publish Vite plugin (using Trusted Publishing / OIDC)
   release-npm-vite-plugin:
@@ -397,7 +398,7 @@ jobs:
 
       - name: Publish @vizejs/vite-plugin
         working-directory: npm/vite-plugin-vize
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Build and publish Fresco package (using Trusted Publishing / OIDC)
   release-npm-fresco:
@@ -432,7 +433,7 @@ jobs:
 
       - name: Publish @vizejs/fresco
         working-directory: npm/fresco
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Build and publish Musea MCP server (using Trusted Publishing / OIDC)
   release-npm-musea-mcp-server:
@@ -467,7 +468,7 @@ jobs:
 
       - name: Publish @vizejs/musea-mcp-server
         working-directory: npm/musea-mcp-server
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Build and publish Vite plugin for Musea (using Trusted Publishing / OIDC)
   release-npm-vite-plugin-musea:
@@ -502,7 +503,7 @@ jobs:
 
       - name: Publish @vizejs/vite-plugin-musea
         working-directory: npm/vite-plugin-musea
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
 
   # Publish crates to crates.io (using Trusted Publishing)
   release-crates:
@@ -536,6 +537,9 @@ jobs:
           echo "Publishing vize_armature..."
           cargo publish -p vize_armature && sleep 60
 
+          echo "Publishing vize_croquis..."
+          cargo publish -p vize_croquis && sleep 60
+
           echo "Publishing vize_atelier_core..."
           cargo publish -p vize_atelier_core && sleep 60
 
@@ -547,6 +551,9 @@ jobs:
 
           echo "Publishing vize_atelier_sfc..."
           cargo publish -p vize_atelier_sfc && sleep 60
+
+          echo "Publishing vize_atelier_ssr..."
+          cargo publish -p vize_atelier_ssr && sleep 60
 
           echo "Publishing vize_glyph..."
           cargo publish -p vize_glyph && sleep 60
@@ -560,11 +567,14 @@ jobs:
           echo "Publishing vize_musea..."
           cargo publish -p vize_musea && sleep 60
 
-          echo "Publishing vize_maestro..."
-          cargo publish -p vize_maestro && sleep 60
-
           echo "Publishing vize_vitrine..."
           cargo publish -p vize_vitrine && sleep 60
+
+          echo "Publishing vize_fresco..."
+          cargo publish -p vize_fresco && sleep 60
+
+          echo "Publishing vize_maestro..."
+          cargo publish -p vize_maestro && sleep 60
 
           echo "Publishing vize (CLI)..."
           cargo publish -p vize
@@ -623,4 +633,4 @@ jobs:
 
       - name: Publish vize CLI package
         working-directory: npm/vize
-        run: pnpm publish --provenance --access public --no-git-checks
+        run: pnpm publish --provenance --access public --no-git-checks --tag $NPM_TAG
