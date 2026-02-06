@@ -1,86 +1,17 @@
-/**
- * Vize configuration utilities
- */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
+import { transform } from "oxc-transform";
+import type { VizeConfig, LoadConfigOptions } from "./types.js";
 
-import fs from "node:fs";
-import path from "node:path";
-
-/**
- * Vize configuration for vite plugin
- */
-export interface VizeConfig {
-  /**
-   * Vite plugin specific options
-   */
-  vite?: {
-    /**
-     * Patterns to include for compilation
-     */
-    include?: string | RegExp | (string | RegExp)[];
-    /**
-     * Patterns to exclude from compilation
-     */
-    exclude?: string | RegExp | (string | RegExp)[];
-    /**
-     * Glob patterns for file scanning
-     */
-    scanPatterns?: string[];
-    /**
-     * Glob patterns to ignore
-     */
-    ignorePatterns?: string[];
-  };
-
-  /**
-   * Compiler options
-   */
-  compiler?: {
-    /**
-     * Enable SSR mode
-     */
-    ssr?: boolean;
-    /**
-     * Generate source maps
-     */
-    sourceMap?: boolean;
-    /**
-     * Enable Vapor mode
-     */
-    vapor?: boolean;
-  };
-
-  /**
-   * Linter options
-   */
-  linter?: {
-    /**
-     * Enable linting
-     */
-    enabled?: boolean;
-    /**
-     * Rules to enable/disable
-     */
-    rules?: Record<string, "off" | "warn" | "error">;
-  };
-}
-
-/**
- * Options for loading configuration
- */
-export interface LoadConfigOptions {
-  /**
-   * Config loading mode
-   * - 'root': Look for config in project root
-   * - 'nearest': Search up directory tree
-   * - 'auto': Automatically detect (same as 'nearest')
-   * - 'none': Don't load config file
-   */
-  mode?: "root" | "nearest" | "auto" | "none";
-  /**
-   * Explicit config file path
-   */
-  configFile?: string;
-}
+const CONFIG_FILE_NAMES = [
+  "vize.config.ts",
+  "vize.config.mts",
+  "vize.config.js",
+  "vize.config.mjs",
+  "vize.config.cjs",
+  "vize.config.json",
+];
 
 /**
  * Define a Vize configuration with type checking
@@ -89,16 +20,8 @@ export function defineConfig(config: VizeConfig): VizeConfig {
   return config;
 }
 
-const CONFIG_FILES = [
-  "vize.config.ts",
-  "vize.config.js",
-  "vize.config.mjs",
-  "vize.config.cjs",
-  "vize.config.json",
-];
-
 /**
- * Load Vize configuration from file
+ * Load vize.config file from the specified directory
  */
 export async function loadConfig(
   root: string,
@@ -110,59 +33,129 @@ export async function loadConfig(
     return null;
   }
 
-  // Treat 'auto' as 'nearest'
-  const searchMode = mode === "auto" ? "nearest" : mode;
-
-  // If explicit config file is provided
+  // Custom config file path
   if (configFile) {
-    const configPath = path.isAbsolute(configFile) ? configFile : path.resolve(root, configFile);
-    return loadConfigFile(configPath);
+    const absolutePath = path.isAbsolute(configFile) ? configFile : path.resolve(root, configFile);
+    if (fs.existsSync(absolutePath)) {
+      return loadConfigFile(absolutePath);
+    }
+    return null;
   }
 
   // Search for config file
-  let searchDir = root;
-
-  while (true) {
-    for (const filename of CONFIG_FILES) {
-      const configPath = path.join(searchDir, filename);
-      if (fs.existsSync(configPath)) {
-        return loadConfigFile(configPath);
-      }
+  if (mode === "auto") {
+    const configPath = findConfigFileAuto(root);
+    if (!configPath) {
+      return null;
     }
+    return loadConfigFile(configPath);
+  }
 
-    if (searchMode === "root") {
-      break;
-    }
+  // mode === "root"
+  const configPath = findConfigFileInDir(root);
+  if (!configPath) {
+    return null;
+  }
+  return loadConfigFile(configPath);
+}
 
-    // Move to parent directory
-    const parentDir = path.dirname(searchDir);
-    if (parentDir === searchDir) {
-      break;
+/**
+ * Find config file in a specific directory
+ */
+function findConfigFileInDir(dir: string): string | null {
+  for (const name of CONFIG_FILE_NAMES) {
+    const filePath = path.join(dir, name);
+    if (fs.existsSync(filePath)) {
+      return filePath;
     }
-    searchDir = parentDir;
+  }
+  return null;
+}
+
+/**
+ * Find config file by searching from cwd upward
+ */
+function findConfigFileAuto(startDir: string): string | null {
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+
+  while (currentDir !== root) {
+    const configPath = findConfigFileInDir(currentDir);
+    if (configPath) {
+      return configPath;
+    }
+    currentDir = path.dirname(currentDir);
   }
 
   return null;
 }
 
-async function loadConfigFile(configPath: string): Promise<VizeConfig | null> {
-  if (!fs.existsSync(configPath)) {
+/**
+ * Load and evaluate a config file
+ */
+async function loadConfigFile(filePath: string): Promise<VizeConfig | null> {
+  if (!fs.existsSync(filePath)) {
     return null;
   }
 
-  const ext = path.extname(configPath);
+  const ext = path.extname(filePath);
 
   if (ext === ".json") {
-    const content = fs.readFileSync(configPath, "utf-8");
+    const content = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(content);
   }
 
-  // For JS/TS files, use dynamic import
-  try {
-    const module = await import(configPath);
-    return module.default ?? module;
-  } catch (e) {
-    console.warn(`[vize] Failed to load config from ${configPath}:`, e);
-    return null;
+  if (ext === ".ts" || ext === ".mts") {
+    return loadTypeScriptConfig(filePath);
   }
+
+  if (ext === ".cjs") {
+    return loadCommonJSConfig(filePath);
+  }
+
+  // .js, .mjs - ESM
+  return loadESMConfig(filePath);
+}
+
+/**
+ * Load TypeScript config file using oxc-transform
+ */
+async function loadTypeScriptConfig(filePath: string): Promise<VizeConfig> {
+  const source = fs.readFileSync(filePath, "utf-8");
+  const result = transform(filePath, source, {
+    typescript: {
+      onlyRemoveTypeImports: true,
+    },
+  });
+
+  const code = result.code;
+
+  // Write to temp file and import
+  const tempFile = filePath.replace(/\.m?ts$/, ".temp.mjs");
+  fs.writeFileSync(tempFile, code);
+
+  try {
+    const fileUrl = pathToFileURL(tempFile).href;
+    const module = await import(fileUrl);
+    return module.default || module;
+  } finally {
+    fs.unlinkSync(tempFile);
+  }
+}
+
+/**
+ * Load ESM config file
+ */
+async function loadESMConfig(filePath: string): Promise<VizeConfig> {
+  const fileUrl = pathToFileURL(filePath).href;
+  const module = await import(fileUrl);
+  return module.default || module;
+}
+
+/**
+ * Load CommonJS config file
+ */
+async function loadCommonJSConfig(filePath: string): Promise<VizeConfig> {
+  const module = await import(pathToFileURL(filePath).href);
+  return module.default || module;
 }

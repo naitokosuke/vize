@@ -11,6 +11,20 @@ export interface VizeConfig {
    * Vite plugin options
    */
   vite?: VitePluginConfig;
+
+  /**
+   * Linter options
+   */
+  linter?: {
+    /**
+     * Enable linting
+     */
+    enabled?: boolean;
+    /**
+     * Rules to enable/disable
+     */
+    rules?: Record<string, "off" | "warn" | "error">;
+  };
 }
 
 /**
@@ -73,9 +87,10 @@ export interface LoadConfigOptions {
    * Config file search mode
    * - 'root': Search only in the specified root directory
    * - 'auto': Search from cwd upward until finding a config file
+   * - 'none': Don't load config file
    * @default 'root'
    */
-  mode?: "root" | "auto";
+  mode?: "root" | "auto" | "none";
 
   /**
    * Custom config file path (overrides automatic search)

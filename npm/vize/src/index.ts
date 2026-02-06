@@ -6,4 +6,8 @@
  * - Configuration utilities for programmatic use
  */
 
-export { defineConfig, loadConfig, type VizeConfig, type LoadConfigOptions } from "./config.js";
+// Types
+export type { VizeConfig, CompilerConfig, VitePluginConfig, LoadConfigOptions } from "./types.js";
+
+// Config utilities
+export { defineConfig, loadConfig } from "./config.js";

@@ -203,6 +203,10 @@ importers:
         version: link:../../vize
 
   npm/vize:
+    dependencies:
+      oxc-transform:
+        specifier: ^0.56.0
+        version: 0.56.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -221,22 +225,6 @@ importers:
         version: 3.5.1(@emnapi/runtime@1.8.1)(@types/node@22.19.3)(node-addon-api@4.3.0)
 
   npm/vize-wasm: {}
-
-  npm/vizejs:
-    dependencies:
-      oxc-transform:
-        specifier: ^0.56.0
-        version: 0.56.5
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.3
-      tsdown:
-        specifier: ^0.9.0
-        version: 0.9.9(@oxc-project/runtime@0.111.0)(typescript@5.6.3)(unplugin-unused@0.2.3(rollup@4.54.0))
-      typescript:
-        specifier: ~5.6.0
-        version: 5.6.3
 
   npm/vscode-art: {}
 
