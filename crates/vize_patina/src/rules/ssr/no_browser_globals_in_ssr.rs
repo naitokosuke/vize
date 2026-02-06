@@ -175,39 +175,98 @@ impl NoBrowserGlobalsInSsr {
         }
     }
 
-    /// Extract identifiers from an expression string
+    /// Extract identifiers from an expression string.
+    ///
+    /// This method is aware of JavaScript syntax to avoid false positives:
+    /// - Skips content inside string literals ('...', "...", `...`)
+    /// - Skips property access after `.` (e.g., `obj.top` → only `obj`)
+    /// - Skips object property keys (e.g., `{ top: 0 }` → skips `top`)
     fn extract_identifiers(expr: &str) -> Vec<&str> {
         let mut identifiers = Vec::new();
-        let mut start = None;
+        let bytes = expr.as_bytes();
+        let len = bytes.len();
+        let mut i = 0;
+        // Track whether the previous token was a `.` (property access)
+        let mut after_dot = false;
 
-        for (i, c) in expr.char_indices() {
-            if c.is_ascii_alphabetic() || c == '_' || c == '$' {
-                if start.is_none() {
-                    start = Some(i);
-                }
-            } else if c.is_ascii_digit() {
-                // Continue identifier if already started
-                if start.is_none() {
-                    // Digit can't start an identifier
-                }
-            } else {
-                // End of identifier
-                if let Some(s) = start {
-                    let ident = &expr[s..i];
-                    if !ident.is_empty() {
-                        identifiers.push(ident);
+        while i < len {
+            let b = bytes[i];
+
+            // Skip string literals
+            if b == b'\'' || b == b'"' || b == b'`' {
+                let quote = b;
+                i += 1;
+                while i < len {
+                    if bytes[i] == b'\\' {
+                        i += 2; // skip escaped character
+                        continue;
                     }
-                    start = None;
+                    if bytes[i] == quote {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
                 }
+                after_dot = false;
+                continue;
             }
-        }
 
-        // Handle last identifier
-        if let Some(s) = start {
-            let ident = &expr[s..];
-            if !ident.is_empty() {
-                identifiers.push(ident);
+            // Track dot for property access
+            if b == b'.' {
+                after_dot = true;
+                i += 1;
+                continue;
             }
+
+            // Identifier start
+            if b.is_ascii_alphabetic() || b == b'_' || b == b'$' {
+                let start = i;
+                i += 1;
+                while i < len
+                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+                {
+                    i += 1;
+                }
+                let ident = &expr[start..i];
+
+                // Skip if it's a property access (after `.`)
+                if after_dot {
+                    after_dot = false;
+                    continue;
+                }
+
+                // Skip if it's an object property key (identifier followed by `:`)
+                // Look ahead past whitespace for `:`
+                let mut j = i;
+                while j < len && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < len && bytes[j] == b':' && (j + 1 >= len || bytes[j + 1] != b':') {
+                    // This is an object key like `{ top: 0 }`, skip it
+                    after_dot = false;
+                    continue;
+                }
+
+                identifiers.push(ident);
+                after_dot = false;
+                continue;
+            }
+
+            // Skip digits (number literals)
+            if b.is_ascii_digit() {
+                i += 1;
+                while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                after_dot = false;
+                continue;
+            }
+
+            // Any other character
+            if !b.is_ascii_whitespace() {
+                after_dot = false;
+            }
+            i += 1;
         }
 
         identifiers
@@ -368,5 +427,48 @@ mod tests {
         let result = lint_with_ssr("<div>{{ localStorage.getItem('key') }}</div>");
         assert!(!result.is_empty());
         assert!(result[0].contains("localStorage"));
+    }
+
+    #[test]
+    fn test_ignores_css_property_names_in_style_object() {
+        // { top: 0 } - 'top' is an object key, not a reference to window.top
+        let result =
+            lint_with_ssr(r#"<div :style="{ position: 'absolute', top: 0, left: 0 }"></div>"#);
+        assert!(
+            result.is_empty(),
+            "Should not flag CSS property names in style objects, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ignores_string_literal_values() {
+        // 'window' is a string literal, not a reference to the window global
+        let result = lint_with_ssr(r#"<div :class="'window'"></div>"#);
+        assert!(
+            result.is_empty(),
+            "Should not flag string literals, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ignores_property_access() {
+        // obj.top - 'top' is a property access, not a reference to window.top
+        let result = lint_with_ssr(r#"<div>{{ obj.top }}</div>"#);
+        // Only 'obj' should be checked, not 'top'
+        assert!(
+            result.is_empty(),
+            "Should not flag property accesses, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_detects_actual_global_in_style_value() {
+        // { top: window.scrollY } - 'window' is a real global reference
+        let result = lint_with_ssr(r#"<div :style="{ top: window.scrollY + 'px' }"></div>"#);
+        assert!(!result.is_empty(), "Should detect window as a global");
+        assert!(result[0].contains("window"));
     }
 }

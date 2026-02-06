@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use vize_patina::{format_results, format_summary, Linter, OutputFormat};
+use vize_patina::{format_results, format_summary, HelpLevel, Linter, OutputFormat};
 
 #[derive(Args)]
 pub struct LintArgs {
@@ -35,6 +35,10 @@ pub struct LintArgs {
     /// Quiet mode - only show summary
     #[arg(short, long)]
     pub quiet: bool,
+
+    /// Help display level: full (default), short, none
+    #[arg(long, default_value = "full")]
+    pub help_level: String,
 }
 
 pub fn run(args: LintArgs) {
@@ -74,7 +78,12 @@ pub fn run(args: LintArgs) {
         return;
     }
 
-    let linter = Linter::new();
+    let help_level = match args.help_level.as_str() {
+        "none" => HelpLevel::None,
+        "short" => HelpLevel::Short,
+        _ => HelpLevel::Full,
+    };
+    let linter = Linter::new().with_help_level(help_level);
     let error_count = AtomicUsize::new(0);
     let warning_count = AtomicUsize::new(0);
 

@@ -3,7 +3,7 @@
 //! High-performance Vue template linter with arena allocation.
 
 use crate::context::LintContext;
-use crate::diagnostic::{LintDiagnostic, LintSummary};
+use crate::diagnostic::{HelpLevel, LintDiagnostic, LintSummary};
 use crate::rule::RuleRegistry;
 use crate::visitor::LintVisitor;
 use vize_armature::Parser;
@@ -51,6 +51,8 @@ pub struct Linter {
     locale: Locale,
     /// Optional set of enabled rule names (if None, all rules are enabled)
     enabled_rules: Option<FxHashSet<String>>,
+    /// Help display level
+    help_level: HelpLevel,
 }
 
 impl Linter {
@@ -65,6 +67,7 @@ impl Linter {
             initial_capacity: Self::DEFAULT_INITIAL_CAPACITY,
             locale: Locale::default(),
             enabled_rules: None,
+            help_level: HelpLevel::default(),
         }
     }
 
@@ -76,6 +79,7 @@ impl Linter {
             initial_capacity: Self::DEFAULT_INITIAL_CAPACITY,
             locale: Locale::default(),
             enabled_rules: None,
+            help_level: HelpLevel::default(),
         }
     }
 
@@ -100,6 +104,13 @@ impl Linter {
     #[inline]
     pub fn with_enabled_rules(mut self, rules: Option<Vec<String>>) -> Self {
         self.enabled_rules = rules.map(|r| r.into_iter().collect());
+        self
+    }
+
+    /// Set the help display level
+    #[inline]
+    pub fn with_help_level(mut self, level: HelpLevel) -> Self {
+        self.help_level = level;
         self
     }
 
@@ -139,9 +150,10 @@ impl Linter {
         let parser = Parser::new(allocator.as_bump(), source);
         let (root, _parse_errors) = parser.parse();
 
-        // Create lint context with locale and enabled rules filter
+        // Create lint context with locale, help level, and enabled rules filter
         let mut ctx = LintContext::with_locale(allocator, source, filename, self.locale);
         ctx.set_enabled_rules(self.enabled_rules.clone());
+        ctx.set_help_level(self.help_level);
 
         // Run visitor with all rules (filtering happens in context)
         let mut visitor = LintVisitor::new(&mut ctx, self.registry.rules());

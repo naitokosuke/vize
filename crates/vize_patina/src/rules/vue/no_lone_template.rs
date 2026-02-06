@@ -74,9 +74,9 @@ impl Rule for NoLoneTemplate {
 
         if !Self::has_valid_directive(element) {
             ctx.warn_with_help(
-                "`<template>` without directive is unnecessary",
+                ctx.t("vue/no-lone-template.message"),
                 &element.loc,
-                "Add `v-if`, `v-for`, or `v-slot`, or remove the `<template>` wrapper",
+                ctx.t("vue/no-lone-template.help"),
             );
         }
     }

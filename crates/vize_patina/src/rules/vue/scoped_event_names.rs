@@ -102,9 +102,9 @@ impl Rule for ScopedEventNames {
         // Check if this event could benefit from scoping
         if Self::could_benefit_from_scope(event_name).is_some() {
             ctx.warn_with_help(
-                "Consider using scoped event name for better organization",
+                ctx.t("vue/scoped-event-names.message"),
                 &directive.loc,
-                "Use \"context:event\" format for better organization",
+                ctx.t("vue/scoped-event-names.help"),
             );
         }
     }

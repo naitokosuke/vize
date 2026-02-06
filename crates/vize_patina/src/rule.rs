@@ -147,6 +147,13 @@ impl RuleRegistry {
         registry.register(Box::new(
             crate::rules::vue::MultiWordComponentNames::default(),
         ));
+        registry.register(Box::new(crate::rules::vue::NoChildContent));
+        registry.register(Box::new(crate::rules::vue::ValidAttributeName));
+        registry.register(Box::new(crate::rules::vue::NoVTextVHtmlOnComponent));
+        registry.register(Box::new(crate::rules::vue::RequireComponentIs));
+        registry.register(Box::new(crate::rules::vue::NoUselessTemplateAttributes));
+        registry.register(Box::new(crate::rules::vue::ValidVMemo));
+        registry.register(Box::new(crate::rules::vue::UseVOnExact));
 
         // ============================================
         // Security Rules (Warning)
@@ -169,6 +176,10 @@ impl RuleRegistry {
             crate::rules::vue::MustacheInterpolationSpacing::default(),
         ));
         registry.register(Box::new(crate::rules::vue::AttributeHyphenation::default()));
+        registry.register(Box::new(crate::rules::vue::VSlotStyle::default()));
+        registry.register(Box::new(crate::rules::vue::PropNameCasing));
+        registry.register(Box::new(crate::rules::vue::HtmlQuotes::default()));
+        registry.register(Box::new(crate::rules::vue::ComponentDefinitionNameCasing));
         // NoMultiSpaces is opt-in only
 
         // ============================================
@@ -211,6 +222,20 @@ impl RuleRegistry {
         registry.register(Box::new(crate::rules::a11y::FormControlHasLabel));
         registry.register(Box::new(crate::rules::a11y::AriaProps));
         registry.register(Box::new(crate::rules::a11y::AriaRole::default()));
+        registry.register(Box::new(crate::rules::a11y::NoAriaHiddenOnFocusable));
+        registry.register(Box::new(crate::rules::a11y::NoAccessKey));
+        registry.register(Box::new(crate::rules::a11y::NoAutofocus));
+        registry.register(Box::new(crate::rules::a11y::NoRolePresentationOnFocusable));
+        registry.register(Box::new(crate::rules::a11y::AriaUnsupportedElements));
+        registry.register(Box::new(crate::rules::a11y::NoRedundantRoles));
+        registry.register(Box::new(crate::rules::a11y::MouseEventsHaveKeyEvents));
+        registry.register(Box::new(crate::rules::a11y::AltText));
+        registry.register(Box::new(crate::rules::a11y::AnchorIsValid));
+        registry.register(Box::new(crate::rules::a11y::LabelHasFor));
+        registry.register(Box::new(crate::rules::a11y::InteractiveSupportsFocus));
+        registry.register(Box::new(crate::rules::a11y::RoleHasRequiredAriaProps));
+        registry.register(Box::new(crate::rules::a11y::MediaHasCaption));
+        registry.register(Box::new(crate::rules::a11y::NoStaticElementInteractions));
         registry.register(Box::new(crate::rules::vue::UseUniqueElementIds::default()));
 
         // ============================================
@@ -261,6 +286,13 @@ impl RuleRegistry {
         registry.register(Box::new(
             crate::rules::vue::MultiWordComponentNames::default(),
         ));
+        registry.register(Box::new(crate::rules::vue::NoChildContent));
+        registry.register(Box::new(crate::rules::vue::ValidAttributeName));
+        registry.register(Box::new(crate::rules::vue::NoVTextVHtmlOnComponent));
+        registry.register(Box::new(crate::rules::vue::RequireComponentIs));
+        registry.register(Box::new(crate::rules::vue::NoUselessTemplateAttributes));
+        registry.register(Box::new(crate::rules::vue::ValidVMemo));
+        registry.register(Box::new(crate::rules::vue::UseVOnExact));
 
         // Security Rules
         registry.register(Box::new(crate::rules::vue::NoVHtml));

@@ -93,13 +93,13 @@ impl Rule for NoUnsafeUrl {
         }
 
         let help_message = if attr_name == "href" {
-            "Consider using <router-link :to=\"...\"> or sanitize URLs with @braintree/sanitize-url"
+            ctx.t("vue/no-unsafe-url.help_href")
         } else {
-            "Ensure URLs are sanitized before binding. Use @braintree/sanitize-url for validation"
+            ctx.t("vue/no-unsafe-url.help")
         };
 
         ctx.warn_with_help(
-            "Dynamic URL binding may be vulnerable to XSS via javascript: protocol",
+            ctx.t("vue/no-unsafe-url.message"),
             &directive.loc,
             help_message,
         );

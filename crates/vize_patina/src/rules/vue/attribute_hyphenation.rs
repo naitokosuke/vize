@@ -145,9 +145,9 @@ impl Rule for AttributeHyphenation {
                 HyphenationStyle::Always => {
                     if is_camel_case(name) {
                         ctx.warn_with_help(
-                            "Attribute should be hyphenated",
+                            ctx.t("vue/attribute-hyphenation.message"),
                             loc,
-                            "Use kebab-case for attribute names",
+                            ctx.t("vue/attribute-hyphenation.help"),
                         );
                     }
                 }

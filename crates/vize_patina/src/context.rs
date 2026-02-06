@@ -2,7 +2,7 @@
 //!
 //! Uses arena allocation for high-performance memory management.
 
-use crate::diagnostic::{LintDiagnostic, Severity};
+use crate::diagnostic::{HelpLevel, LintDiagnostic, Severity};
 use std::borrow::Cow;
 use vize_carton::i18n::{t, t_fmt, Locale};
 use vize_carton::{Allocator, CompactString, FxHashMap, FxHashSet};
@@ -105,6 +105,8 @@ pub struct LintContext<'a> {
     analysis: Option<&'a Croquis>,
     /// SSR mode for linting
     ssr_mode: SsrMode,
+    /// Help display level
+    help_level: HelpLevel,
 }
 
 impl<'a> LintContext<'a> {
@@ -144,6 +146,7 @@ impl<'a> LintContext<'a> {
             enabled_rules: None,
             analysis: None,
             ssr_mode: SsrMode::default(),
+            help_level: HelpLevel::default(),
         }
     }
 
@@ -172,6 +175,7 @@ impl<'a> LintContext<'a> {
             enabled_rules: None,
             analysis: Some(analysis),
             ssr_mode: SsrMode::default(),
+            help_level: HelpLevel::default(),
         }
     }
 
@@ -209,6 +213,18 @@ impl<'a> LintContext<'a> {
     #[inline]
     pub fn is_ssr_enabled(&self) -> bool {
         self.ssr_mode == SsrMode::Enabled
+    }
+
+    /// Set help display level
+    #[inline]
+    pub fn set_help_level(&mut self, level: HelpLevel) {
+        self.help_level = level;
+    }
+
+    /// Get help display level
+    #[inline]
+    pub fn help_level(&self) -> HelpLevel {
+        self.help_level
     }
 
     /// Set enabled rules filter
@@ -396,10 +412,13 @@ impl<'a> LintContext<'a> {
         loc: &SourceLocation,
         help: impl Into<CompactString>,
     ) {
-        self.report(
-            LintDiagnostic::error(self.current_rule, message, loc.start.offset, loc.end.offset)
-                .with_help(help),
-        );
+        let mut diag =
+            LintDiagnostic::error(self.current_rule, message, loc.start.offset, loc.end.offset);
+        let help_str: CompactString = help.into();
+        if let Some(processed) = self.help_level.process(help_str.as_str()) {
+            diag = diag.with_help(processed);
+        }
+        self.report(diag);
     }
 
     /// Report a warning with help message
@@ -410,10 +429,13 @@ impl<'a> LintContext<'a> {
         loc: &SourceLocation,
         help: impl Into<CompactString>,
     ) {
-        self.report(
-            LintDiagnostic::warn(self.current_rule, message, loc.start.offset, loc.end.offset)
-                .with_help(help),
-        );
+        let mut diag =
+            LintDiagnostic::warn(self.current_rule, message, loc.start.offset, loc.end.offset);
+        let help_str: CompactString = help.into();
+        if let Some(processed) = self.help_level.process(help_str.as_str()) {
+            diag = diag.with_help(processed);
+        }
+        self.report(diag);
     }
 
     /// Report a diagnostic with related label

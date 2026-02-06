@@ -92,7 +92,7 @@ pub mod telegraph;
 mod visitor;
 
 pub use context::LintContext;
-pub use diagnostic::{Fix, LintDiagnostic, LintSummary, Severity, TextEdit};
+pub use diagnostic::{Fix, HelpLevel, LintDiagnostic, LintSummary, Severity, TextEdit};
 pub use linter::{LintResult, Linter};
 pub use output::{format_results, format_summary, OutputFormat};
 pub use rule::{Rule, RuleCategory, RuleMeta, RuleRegistry};

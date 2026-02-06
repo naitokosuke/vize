@@ -95,9 +95,9 @@ impl Rule for MustacheInterpolationSpacing {
 
                 if !has_leading_space || !has_trailing_space {
                     ctx.warn_with_help(
-                        "Expected spaces inside mustache interpolation",
+                        ctx.t("vue/mustache-interpolation-spacing.expected"),
                         &interpolation.loc,
-                        "Add spaces inside mustache braces",
+                        ctx.t("vue/mustache-interpolation-spacing.help_expected"),
                     );
                 }
             }
@@ -105,9 +105,9 @@ impl Rule for MustacheInterpolationSpacing {
                 let trimmed = inner.trim();
                 if inner != trimmed {
                     ctx.warn_with_help(
-                        "Unexpected spaces inside mustache interpolation",
+                        ctx.t("vue/mustache-interpolation-spacing.unexpected"),
                         &interpolation.loc,
-                        "Remove spaces inside mustache braces",
+                        ctx.t("vue/mustache-interpolation-spacing.help_unexpected"),
                     );
                 }
             }

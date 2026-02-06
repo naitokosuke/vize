@@ -15,6 +15,63 @@ pub enum Severity {
     Warning,
 }
 
+/// Help display level for diagnostics
+///
+/// Controls how much help text is included in diagnostics.
+/// Useful for environments where markdown rendering is unavailable
+/// or CLI output where verbose help is distracting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HelpLevel {
+    /// No help text
+    None,
+    /// Short help text (first line only, markdown stripped)
+    Short,
+    /// Full help text with markdown formatting
+    #[default]
+    Full,
+}
+
+impl HelpLevel {
+    /// Process help text according to this level
+    pub fn process(&self, help: &str) -> Option<String> {
+        match self {
+            HelpLevel::None => None,
+            HelpLevel::Short => Some(strip_markdown_first_line(help)),
+            HelpLevel::Full => Some(help.to_string()),
+        }
+    }
+}
+
+/// Strip markdown formatting and return the first meaningful line.
+fn strip_markdown_first_line(text: &str) -> String {
+    let mut in_code_block = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        // Track code fence blocks
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        // Skip lines inside code blocks
+        if in_code_block {
+            continue;
+        }
+        // Skip empty lines
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Strip markdown bold/italic
+        let stripped = trimmed.replace("**", "").replace("__", "").replace('`', "");
+        // Skip lines that are just markdown headers
+        let stripped = stripped.trim_start_matches('#').trim();
+        if stripped.is_empty() {
+            continue;
+        }
+        return stripped.to_string();
+    }
+    text.lines().next().unwrap_or(text).to_string()
+}
+
 /// A text edit for auto-fixing a diagnostic.
 ///
 /// Represents a single text replacement in the source code.
@@ -267,5 +324,61 @@ impl LintSummary {
     #[inline]
     pub fn has_errors(&self) -> bool {
         self.error_count > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_help_level_full() {
+        let level = HelpLevel::Full;
+        let help = "**Why:** Use `:key` for tracking.\n\n```vue\n<li :key=\"id\">\n```";
+        let result = level.process(help);
+        assert_eq!(result, Some(help.to_string()));
+    }
+
+    #[test]
+    fn test_help_level_none() {
+        let level = HelpLevel::None;
+        let result = level.process("Any help text");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_help_level_short_strips_markdown() {
+        let level = HelpLevel::Short;
+        let help = "**Why:** The `:key` attribute helps Vue track items.\n\n**Fix:**\n```vue\n<li :key=\"id\">\n```";
+        let result = level.process(help);
+        assert_eq!(
+            result,
+            Some("Why: The :key attribute helps Vue track items.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_help_level_short_skips_code_blocks() {
+        let level = HelpLevel::Short;
+        let help = "```vue\n<li :key=\"id\">\n```\nUse unique keys";
+        let result = level.process(help);
+        assert_eq!(result, Some("Use unique keys".to_string()));
+    }
+
+    #[test]
+    fn test_help_level_short_simple_text() {
+        let level = HelpLevel::Short;
+        let help = "Add a key attribute to the element";
+        let result = level.process(help);
+        assert_eq!(
+            result,
+            Some("Add a key attribute to the element".to_string())
+        );
+    }
+
+    #[test]
+    fn test_strip_markdown_first_line_with_backticks() {
+        let result = strip_markdown_first_line("Use `v-model` instead of `{{ }}`");
+        assert_eq!(result, "Use v-model instead of {{ }}");
     }
 }

@@ -11,6 +11,7 @@
 
 // Essential rules
 mod multi_word_component_names;
+mod no_child_content;
 mod no_dupe_v_else_if;
 mod no_duplicate_attributes;
 mod no_reserved_component_names;
@@ -18,11 +19,17 @@ mod no_template_key;
 mod no_textarea_mustache;
 mod no_unused_vars;
 mod no_use_v_if_with_v_for;
+mod no_useless_template_attributes;
+mod no_v_text_v_html_on_component;
+mod require_component_is;
 mod require_v_for_key;
+mod use_v_on_exact;
+mod valid_attribute_name;
 mod valid_v_bind;
 mod valid_v_else;
 mod valid_v_for;
 mod valid_v_if;
+mod valid_v_memo;
 mod valid_v_model;
 mod valid_v_on;
 mod valid_v_show;
@@ -30,12 +37,16 @@ mod valid_v_slot;
 
 // Strongly recommended rules
 mod attribute_hyphenation;
+mod component_definition_name_casing;
+mod html_quotes;
 mod html_self_closing;
 mod mustache_interpolation_spacing;
 mod no_multi_spaces;
 mod no_template_shadow;
+mod prop_name_casing;
 mod v_bind_style;
 mod v_on_style;
+mod v_slot_style;
 
 // Recommended rules
 mod attribute_order;
@@ -75,6 +86,7 @@ mod warn_custom_directive;
 
 // Essential rules exports
 pub use multi_word_component_names::MultiWordComponentNames;
+pub use no_child_content::NoChildContent;
 pub use no_dupe_v_else_if::NoDupeVElseIf;
 pub use no_duplicate_attributes::NoDuplicateAttributes;
 pub use no_reserved_component_names::NoReservedComponentNames;
@@ -82,11 +94,17 @@ pub use no_template_key::NoTemplateKey;
 pub use no_textarea_mustache::NoTextareaMustache;
 pub use no_unused_vars::NoUnusedVars;
 pub use no_use_v_if_with_v_for::NoUseVIfWithVFor;
+pub use no_useless_template_attributes::NoUselessTemplateAttributes;
+pub use no_v_text_v_html_on_component::NoVTextVHtmlOnComponent;
+pub use require_component_is::RequireComponentIs;
 pub use require_v_for_key::RequireVForKey;
+pub use use_v_on_exact::UseVOnExact;
+pub use valid_attribute_name::ValidAttributeName;
 pub use valid_v_bind::ValidVBind;
 pub use valid_v_else::ValidVElse;
 pub use valid_v_for::ValidVFor;
 pub use valid_v_if::ValidVIf;
+pub use valid_v_memo::ValidVMemo;
 pub use valid_v_model::ValidVModel;
 pub use valid_v_on::ValidVOn;
 pub use valid_v_show::ValidVShow;
@@ -94,12 +112,16 @@ pub use valid_v_slot::ValidVSlot;
 
 // Strongly recommended rules exports
 pub use attribute_hyphenation::AttributeHyphenation;
+pub use component_definition_name_casing::ComponentDefinitionNameCasing;
+pub use html_quotes::HtmlQuotes;
 pub use html_self_closing::HtmlSelfClosing;
 pub use mustache_interpolation_spacing::MustacheInterpolationSpacing;
 pub use no_multi_spaces::NoMultiSpaces;
 pub use no_template_shadow::NoTemplateShadow;
+pub use prop_name_casing::PropNameCasing;
 pub use v_bind_style::{VBindStyle, VBindStyleOption};
 pub use v_on_style::{VOnStyle, VOnStyleOption};
+pub use v_slot_style::VSlotStyle;
 
 // Recommended rules exports
 pub use attribute_order::AttributeOrder;

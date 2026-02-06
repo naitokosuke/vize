@@ -10,7 +10,7 @@
 use crate::context::LintContext;
 use crate::diagnostic::Severity;
 use crate::rule::{Rule, RuleCategory, RuleMeta};
-use vize_relief::ast::{ElementNode, ExpressionNode, PropNode};
+use vize_relief::ast::{ElementNode, ElementType, ExpressionNode, PropNode};
 
 static META: RuleMeta = RuleMeta {
     name: "a11y/click-events-have-key-events",
@@ -109,6 +109,12 @@ impl Rule for ClickEventsHaveKeyEvents {
     }
 
     fn enter_element<'a>(&self, ctx: &mut LintContext<'a>, element: &ElementNode<'a>) {
+        // Skip Vue custom components - they handle their own a11y internally
+        // Components like <MkButton>, <NuxtLink> may render as interactive elements
+        if element.tag_type == ElementType::Component {
+            return;
+        }
+
         // Skip interactive elements - they have native keyboard support
         if Self::is_interactive_element(&element.tag) {
             return;
@@ -182,5 +188,29 @@ mod tests {
         let linter = create_linter();
         let result = linter.lint_template(r#"<span @click="toggle">Toggle</span>"#, "test.vue");
         assert_eq!(result.warning_count, 1);
+    }
+
+    #[test]
+    fn test_valid_vue_component_with_click() {
+        let linter = create_linter();
+        // Vue components handle their own a11y internally
+        let result = linter.lint_template(
+            r#"<MkButton @click="handleClick">Click</MkButton>"#,
+            "test.vue",
+        );
+        assert_eq!(
+            result.warning_count, 0,
+            "Should not flag Vue components with @click"
+        );
+    }
+
+    #[test]
+    fn test_valid_nuxt_link_with_click() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<NuxtLink @click.stop>Link</NuxtLink>"#, "test.vue");
+        assert_eq!(
+            result.warning_count, 0,
+            "Should not flag NuxtLink component"
+        );
     }
 }

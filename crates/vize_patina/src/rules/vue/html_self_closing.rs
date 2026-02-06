@@ -113,9 +113,9 @@ impl Rule for HtmlSelfClosing {
         // Void elements should always be self-closing
         if is_void && !is_self_closing {
             ctx.warn_with_help(
-                "Void element should be self-closing",
+                ctx.t("vue/html-self-closing.void"),
                 &element.loc,
-                "Use self-closing syntax",
+                ctx.t("vue/html-self-closing.help"),
             );
             return;
         }
@@ -123,9 +123,9 @@ impl Rule for HtmlSelfClosing {
         // SVG/MathML elements without children should be self-closing
         if (is_svg || is_mathml) && !has_children && !is_self_closing {
             ctx.warn_with_help(
-                "Empty element should be self-closing",
+                ctx.t("vue/html-self-closing.empty"),
                 &element.loc,
-                "Use self-closing syntax",
+                ctx.t("vue/html-self-closing.help"),
             );
             return;
         }
@@ -133,9 +133,9 @@ impl Rule for HtmlSelfClosing {
         // Component elements without children should be self-closing
         if is_component && !has_children && !is_self_closing {
             ctx.warn_with_help(
-                "Empty component should be self-closing",
+                ctx.t("vue/html-self-closing.component"),
                 &element.loc,
-                "Use self-closing syntax",
+                ctx.t("vue/html-self-closing.help"),
             );
         }
 

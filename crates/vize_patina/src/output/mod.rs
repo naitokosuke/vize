@@ -53,6 +53,8 @@ pub struct JsonMessage {
     pub end_line: u32,
     #[serde(rename = "endColumn")]
     pub end_column: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
 }
 
 /// Format results as JSON
@@ -80,6 +82,7 @@ fn format_json(results: &[LintResult]) -> String {
                         column: d.start + 1,
                         end_line: 1,
                         end_column: d.end + 1,
+                        help: d.help.as_ref().map(|h| h.to_string()),
                     }
                 })
                 .collect(),

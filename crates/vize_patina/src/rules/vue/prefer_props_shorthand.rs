@@ -82,9 +82,9 @@ impl Rule for PreferPropsShorthand {
 
                             if is_simple_identifier && names_match(prop_name, value) {
                                 ctx.warn_with_help(
-                                    "Use shorthand syntax for same-name prop binding",
+                                    ctx.t("vue/prefer-props-shorthand.message"),
                                     &dir.loc,
-                                    "Use shorthand prop syntax",
+                                    ctx.t("vue/prefer-props-shorthand.help"),
                                 );
                             }
                         }

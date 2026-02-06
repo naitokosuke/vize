@@ -78,18 +78,18 @@ impl Rule for ComponentNameInTemplateCasing {
             ComponentCasing::PascalCase => {
                 if !is_pascal_case(tag) {
                     ctx.warn_with_help(
-                        "Component should use PascalCase",
+                        ctx.t("vue/component-name-in-template-casing.pascal"),
                         &element.loc,
-                        "Use PascalCase for component names",
+                        ctx.t("vue/component-name-in-template-casing.help_pascal"),
                     );
                 }
             }
             ComponentCasing::KebabCase => {
                 if !is_kebab_case_loose(tag) {
                     ctx.warn_with_help(
-                        "Component should use kebab-case",
+                        ctx.t("vue/component-name-in-template-casing.kebab"),
                         &element.loc,
-                        "Use kebab-case for component names",
+                        ctx.t("vue/component-name-in-template-casing.help_kebab"),
                     );
                 }
             }

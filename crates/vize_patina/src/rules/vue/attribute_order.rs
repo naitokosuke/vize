@@ -139,9 +139,9 @@ impl Rule for AttributeOrder {
                     };
 
                     ctx.warn_with_help(
-                        "Attribute should be placed in correct order",
+                        ctx.t("vue/attribute-order.message"),
                         loc,
-                        "Follow recommended attribute ordering",
+                        ctx.t("vue/attribute-order.help"),
                     );
                 }
             }

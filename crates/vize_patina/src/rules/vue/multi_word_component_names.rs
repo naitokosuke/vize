@@ -7,25 +7,29 @@
 //! existing and future HTML elements, since all HTML elements are
 //! a single word.
 //!
+//! This rule checks the **component definition** (filename), NOT the
+//! names of other components used in the template. This matches the
+//! behavior of eslint-plugin-vue.
+//!
 //! ## Examples
 //!
-//! ### Invalid
-//! ```vue
-//! <Item />
-//! <Table />
+//! ### Invalid (filename)
+//! ```text
+//! Item.vue
+//! Table.vue
 //! ```
 //!
-//! ### Valid
-//! ```vue
-//! <TodoItem />
-//! <DataTable />
-//! <AppHeader />
+//! ### Valid (filename)
+//! ```text
+//! TodoItem.vue
+//! DataTable.vue
+//! AppHeader.vue
 //! ```
 
 use crate::context::LintContext;
 use crate::diagnostic::Severity;
 use crate::rule::{Rule, RuleCategory, RuleMeta};
-use vize_relief::ast::ElementNode;
+use vize_relief::ast::RootNode;
 
 static META: RuleMeta = RuleMeta {
     name: "vue/multi-word-component-names",
@@ -50,31 +54,24 @@ impl Default for MultiWordComponentNames {
 }
 
 impl MultiWordComponentNames {
-    fn is_custom_component(tag: &str) -> bool {
-        // PascalCase components (e.g., MyComponent)
-        if tag
-            .chars()
-            .next()
-            .map(|c| c.is_uppercase())
-            .unwrap_or(false)
-        {
+    fn is_multi_word(name: &str) -> bool {
+        // kebab-case: check for hyphen
+        if name.contains('-') {
             return true;
         }
-        // kebab-case components with hyphen (e.g., my-component)
-        if tag.contains('-') && !tag.starts_with("v-") {
-            return true;
-        }
-        false
+        // PascalCase: count uppercase letters (at least 2 means multi-word)
+        let uppercase_count = name.chars().filter(|c| c.is_uppercase()).count();
+        uppercase_count >= 2
     }
 
-    fn is_multi_word(tag: &str) -> bool {
-        // kebab-case: check for hyphen
-        if tag.contains('-') {
-            return true;
-        }
-        // PascalCase: count uppercase letters
-        let uppercase_count = tag.chars().filter(|c| c.is_uppercase()).count();
-        uppercase_count >= 2
+    /// Extract the component name from a filename.
+    /// e.g., "MyComponent.vue" → "MyComponent", "pages/index.vue" → "index"
+    fn extract_component_name(filename: &str) -> Option<&str> {
+        // Get the file stem (without extension and path)
+        let basename = filename.rsplit('/').next().unwrap_or(filename);
+        let basename = basename.rsplit('\\').next().unwrap_or(basename);
+        // Remove .vue extension
+        basename.strip_suffix(".vue")
     }
 }
 
@@ -83,25 +80,46 @@ impl Rule for MultiWordComponentNames {
         &META
     }
 
-    fn enter_element<'a>(&self, ctx: &mut LintContext<'a>, element: &ElementNode<'a>) {
-        let tag = element.tag.as_str();
+    fn run_on_template<'a>(&self, ctx: &mut LintContext<'a>, root: &RootNode<'a>) {
+        let filename = ctx.filename;
 
-        // Skip non-component elements
-        if !Self::is_custom_component(tag) {
+        // Only check .vue files
+        let Some(component_name) = Self::extract_component_name(filename) else {
+            return;
+        };
+
+        // Skip ignored components
+        if self.ignore.contains(&component_name) {
             return;
         }
 
-        // Skip ignored components
-        if self.ignore.contains(&tag) {
+        // Skip index files (common in file-based routing)
+        if component_name == "index" || component_name == "Index" {
+            return;
+        }
+
+        // Skip filenames that start with lowercase (likely page routes, not components)
+        // e.g., pages/about.vue, pages/login.vue
+        if component_name
+            .chars()
+            .next()
+            .map(|c| c.is_lowercase())
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        // Skip filenames with brackets (dynamic routes like [id].vue, [...slug].vue)
+        if component_name.starts_with('[') || component_name.starts_with('_') {
             return;
         }
 
         // Check if the component name is multi-word
-        if !Self::is_multi_word(tag) {
+        if !Self::is_multi_word(component_name) {
             ctx.error_with_help(
-                "Component name should be multi-word to avoid conflicts with HTML elements",
-                &element.loc,
-                "Rename the component to use multiple words (e.g., \"TodoItem\" instead of \"Item\")",
+                ctx.t("vue/multi-word-component-names.message"),
+                &root.loc,
+                ctx.t("vue/multi-word-component-names.help"),
             );
         }
     }
@@ -120,45 +138,70 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_multi_word_pascal_case() {
+    fn test_valid_multi_word_pascal_case_filename() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<TodoItem />"#, "test.vue");
+        let result = linter.lint_template(r#"<div>hello</div>"#, "TodoItem.vue");
         assert_eq!(result.error_count, 0);
     }
 
     #[test]
-    fn test_valid_multi_word_kebab_case() {
+    fn test_valid_multi_word_kebab_case_filename() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<todo-item></todo-item>"#, "test.vue");
+        let result = linter.lint_template(r#"<div>hello</div>"#, "todo-item.vue");
         assert_eq!(result.error_count, 0);
     }
 
     #[test]
     fn test_valid_ignored_app() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<App />"#, "test.vue");
+        let result = linter.lint_template(r#"<div>hello</div>"#, "App.vue");
         assert_eq!(result.error_count, 0);
     }
 
     #[test]
     fn test_invalid_single_word_pascal_case() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<Item />"#, "test.vue");
+        let result = linter.lint_template(r#"<div>hello</div>"#, "Item.vue");
         assert_eq!(result.error_count, 1);
         assert!(result.diagnostics[0].message.contains("multi-word"));
     }
 
     #[test]
-    fn test_html_elements_ignored() {
+    fn test_does_not_flag_component_usage_in_template() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<div><span>text</span></div>"#, "test.vue");
+        // Using single-word component <Mfm> in template should NOT trigger
+        let result = linter.lint_template(r#"<Mfm :text="text" />"#, "MyComponent.vue");
+        assert_eq!(
+            result.error_count, 0,
+            "Should not flag component usage in template"
+        );
+    }
+
+    #[test]
+    fn test_skips_index_files() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div>hello</div>"#, "index.vue");
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_skips_non_vue_files() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div>hello</div>"#, "test.html");
         assert_eq!(result.error_count, 0);
     }
 
     #[test]
     fn test_valid_three_words() {
         let linter = create_linter();
-        let result = linter.lint_template(r#"<UserProfileCard />"#, "test.vue");
+        let result = linter.lint_template(r#"<div>hello</div>"#, "UserProfileCard.vue");
         assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_filename_with_path() {
+        let linter = create_linter();
+        let result = linter.lint_template(r#"<div>hello</div>"#, "src/components/Item.vue");
+        assert_eq!(result.error_count, 1);
     }
 }

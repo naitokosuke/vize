@@ -1,9 +1,9 @@
 ---
 source: crates/vize_atelier_sfc/src/snapshot_tests.rs
-assertion_line: 106
+assertion_line: 150
 expression: ts_output
 ---
-import { openBlock as _openBlock, createElementBlock as _createElementBlock, createCommentVNode as _createCommentVNode, createTextVNode as _createTextVNode, toDisplayString as _toDisplayString } from "vue"
+import { openBlock as _openBlock, createElementBlock as _createElementBlock, createCommentVNode as _createCommentVNode, toDisplayString as _toDisplayString } from "vue"
 
 import { defineComponent as _defineComponent } from 'vue'
 
@@ -23,10 +23,7 @@ export function render(_ctx, _cache, $props, $setup, $data, $options) {
   return ($setup.error)
     ? (_openBlock(), _createElementBlock("div", {
       key: 0
-    }, [
-      _createTextVNode("Error: "),
-      _toDisplayString($setup.error)
-    ]))
+    }, "Error: " + _toDisplayString($setup.error), 1 /* TEXT */))
     : (_openBlock(), _createElementBlock("div", {
       key: 1
     }, _toDisplayString($setup.data), 1 /* TEXT */))
