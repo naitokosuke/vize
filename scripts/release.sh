@@ -160,7 +160,9 @@ find npm -name 'README.md.bak' -delete
 
 # Commit changes
 echo "Committing changes..."
-git add Cargo.toml npm/*/package.json npm/*/README.md
+git add Cargo.toml npm/*/package.json
+# Add READMEs that are tracked (some may be gitignored)
+git add npm/*/README.md 2>/dev/null || true
 git commit -m "chore: release v$NEW_VERSION"
 
 # Create tag
