@@ -30,11 +30,11 @@ yarn add @vizejs/vite-plugin
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite'
-import { vizeNative } from '@vizejs/vite-plugin'
+import vize from '@vizejs/vite-plugin'
 
 export default defineConfig({
   plugins: [
-    vizeNative({
+    vize({
       // options
     })
   ]
@@ -47,12 +47,12 @@ For Nuxt 3, add the plugin to your `nuxt.config.ts`:
 
 ```ts
 // nuxt.config.ts
-import { vizeNative } from '@vizejs/vite-plugin'
+import vize from '@vizejs/vite-plugin'
 
 export default defineNuxtConfig({
   vite: {
     plugins: [
-      vizeNative({
+      vize({
         // Exclude Nuxt's internal .vue files if needed
         exclude: [/node_modules/, /#/, /\.nuxt/]
       })
@@ -81,7 +81,7 @@ export default defineNuxtConfig({
   },
   vite: {
     plugins: [
-      vizeNative()
+      vize()
     ]
   }
 })
