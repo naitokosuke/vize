@@ -512,40 +512,57 @@ jobs:
         run: |
           set -e
 
-          # Helper function: publish a crate, treating "already uploaded" as success
-          publish_crate() {
+          # Get expected version from Cargo.toml
+          EXPECTED_VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          echo "Expected version: $EXPECTED_VERSION"
+
+          # Check if a specific version is already published via crates.io API
+          is_published() {
             local crate=$1
-            echo "Publishing $crate..."
-            if output=$(cargo publish -p "$crate" 2>&1); then
-              echo "$output"
-              return 0
-            fi
-            if echo "$output" | grep -q "already uploaded\|already exists"; then
-              echo "$crate is already published, skipping."
-              return 0
-            fi
-            echo "$output"
-            return 1
+            local version=$2
+            curl -sf "https://crates.io/api/v1/crates/$crate" 2>/dev/null | \
+              jq -e ".versions[] | select(.num == \"$version\")" > /dev/null 2>&1
           }
 
-          # Publish in dependency order with delays for index updates
-          # (sparse registry reflects quickly, 20s is sufficient)
-          publish_crate vize_carton && sleep 20
-          publish_crate vize_relief && sleep 20
-          publish_crate vize_armature && sleep 20
-          publish_crate vize_croquis && sleep 20
-          publish_crate vize_atelier_core && sleep 20
-          publish_crate vize_atelier_dom && sleep 20
-          publish_crate vize_atelier_vapor && sleep 20
-          publish_crate vize_atelier_sfc && sleep 20
-          publish_crate vize_atelier_ssr && sleep 20
-          publish_crate vize_glyph && sleep 20
-          publish_crate vize_patina && sleep 20
-          publish_crate vize_canon && sleep 20
-          publish_crate vize_musea && sleep 20
-          publish_crate vize_vitrine && sleep 20
-          publish_crate vize_fresco && sleep 20
-          publish_crate vize_maestro && sleep 20
+          # Publish a crate (oxc-style: API check before publish)
+          publish_crate() {
+            local crate=$1
+            echo "Publishing $crate v$EXPECTED_VERSION..."
+
+            # Check if already published via API
+            if is_published "$crate" "$EXPECTED_VERSION"; then
+              echo "$crate v$EXPECTED_VERSION is already published, skipping."
+              return 0
+            fi
+
+            # Publish
+            if ! cargo publish -p "$crate"; then
+              echo "Failed to publish $crate"
+              return 1
+            fi
+
+            echo "$crate v$EXPECTED_VERSION published successfully."
+            return 0
+          }
+
+          # Publish in dependency order
+          # With sparse registry, index updates are nearly instant after publish
+          publish_crate vize_carton
+          publish_crate vize_relief
+          publish_crate vize_armature
+          publish_crate vize_croquis
+          publish_crate vize_atelier_core
+          publish_crate vize_atelier_dom
+          publish_crate vize_atelier_vapor
+          publish_crate vize_atelier_sfc
+          publish_crate vize_atelier_ssr
+          publish_crate vize_glyph
+          publish_crate vize_patina
+          publish_crate vize_canon
+          publish_crate vize_musea
+          publish_crate vize_vitrine
+          publish_crate vize_fresco
+          publish_crate vize_maestro
           publish_crate vize
 
   # Create GitHub Release with CLI binaries
