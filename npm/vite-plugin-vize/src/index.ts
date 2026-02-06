@@ -281,6 +281,27 @@ export function vize(options: VizeOptions = {}): Plugin {
     },
 
     async resolveId(id: string, importer?: string) {
+      // Skip virtual module IDs starting with \0
+      if (id.startsWith("\0")) {
+        return null;
+      }
+
+      // Handle stale vize: prefix (without \0) from cached resolutions
+      // Redirect to original file path so Vite/other plugins can handle it
+      if (id.startsWith("vize:")) {
+        let realPath = id.slice("vize:".length);
+        if (realPath.endsWith(".ts")) {
+          realPath = realPath.slice(0, -3);
+        }
+        logger.log(`resolveId: redirecting stale vize: ID to ${realPath}`);
+        // For node_modules, return the original path to let Vite handle it normally
+        if (realPath.includes("node_modules")) {
+          return realPath;
+        }
+        // For project files, resolve through vize again
+        return this.resolve(realPath, importer, { skipSelf: true });
+      }
+
       // Handle virtual CSS module for production extraction
       if (id === VIRTUAL_CSS_MODULE) {
         return RESOLVED_CSS_MODULE;
@@ -354,7 +375,27 @@ export function vize(options: VizeOptions = {}): Plugin {
       }
 
       if (id.endsWith(".vue")) {
+        // Skip node_modules early - before even resolving the path
+        // This handles cases where the import path itself contains node_modules
+        if (id.includes("node_modules")) {
+          logger.log(`resolveId: skipping node_modules import ${id}`);
+          return null;
+        }
+
         const resolved = resolveVuePath(id, importer);
+
+        // Skip node_modules - frameworks like Nuxt have their own Vue plugins
+        // This must be checked BEFORE any caching or virtual ID creation
+        if (resolved.includes("node_modules")) {
+          logger.log(`resolveId: skipping node_modules path ${resolved}`);
+          return null;
+        }
+
+        // Skip if not matching filter (additional user-configured exclusions)
+        if (!filter(resolved)) {
+          logger.log(`resolveId: skipping filtered path ${resolved}`);
+          return null;
+        }
 
         // Debug: log all resolution attempts
         const hasCache = cache.has(resolved);
@@ -396,7 +437,6 @@ export function vize(options: VizeOptions = {}): Plugin {
         return "";
       }
 
-      // Handle virtual module
       if (id.startsWith(VIRTUAL_PREFIX)) {
         // Remove .ts suffix if present for lookup
         const lookupId = id.endsWith(".ts") ? id.slice(0, -3) : id;
