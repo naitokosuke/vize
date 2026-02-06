@@ -1,46 +1,13 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
+import * as native from "@vizejs/native";
 import type {
-  CompileSfcFn,
-  CompileSfcBatchWithResultsFn,
   CompiledModule,
   BatchFileInput,
   BatchCompileResultWithFiles,
 } from "./types.js";
 import { generateScopeId } from "./utils.js";
 
-const require = createRequire(import.meta.url);
-
-let compileSfc: CompileSfcFn | null = null;
-let compileSfcBatchWithResults: CompileSfcBatchWithResultsFn | null = null;
-
-export function loadNative(): CompileSfcFn {
-  if (compileSfc) return compileSfc;
-
-  try {
-    const native = require("@vizejs/native");
-    compileSfc = native.compileSfc;
-    return compileSfc!;
-  } catch (e) {
-    throw new Error(
-      `Failed to load @vizejs/native. Make sure it's installed and built:\n${String(e)}`,
-    );
-  }
-}
-
-export function loadNativeBatch(): CompileSfcBatchWithResultsFn {
-  if (compileSfcBatchWithResults) return compileSfcBatchWithResults;
-
-  try {
-    const native = require("@vizejs/native");
-    compileSfcBatchWithResults = native.compileSfcBatchWithResults;
-    return compileSfcBatchWithResults!;
-  } catch (e) {
-    throw new Error(
-      `Failed to load @vizejs/native. Make sure it's installed and built:\n${String(e)}`,
-    );
-  }
-}
+const { compileSfc, compileSfcBatchWithResults } = native;
 
 export function compileFile(
   filePath: string,
@@ -48,12 +15,11 @@ export function compileFile(
   options: { sourceMap: boolean; ssr: boolean },
   source?: string,
 ): CompiledModule {
-  const compile = loadNative();
   const content = source ?? fs.readFileSync(filePath, "utf-8");
   const scopeId = generateScopeId(filePath);
   const hasScoped = /<style[^>]*\bscoped\b/.test(content);
 
-  const result = compile(content, {
+  const result = compileSfc(content, {
     filename: filePath,
     sourceMap: options.sourceMap,
     ssr: options.ssr,
@@ -91,14 +57,12 @@ export function compileBatch(
   cache: Map<string, CompiledModule>,
   options: { ssr: boolean },
 ): BatchCompileResultWithFiles {
-  const compile = loadNativeBatch();
-
   const inputs: BatchFileInput[] = files.map((f) => ({
     path: f.path,
     source: f.source,
   }));
 
-  const result = compile(inputs, {
+  const result = compileSfcBatchWithResults(inputs, {
     ssr: options.ssr,
   });
 

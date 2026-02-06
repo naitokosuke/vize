@@ -173,12 +173,21 @@ export function vize(options: VizeOptions = {}): Plugin {
       resolved = id;
     } else if (importer) {
       // Remove virtual prefix from importer if present
-      const realImporter = importer.startsWith(VIRTUAL_PREFIX)
+      let realImporter = importer.startsWith(VIRTUAL_PREFIX)
         ? (virtualToReal.get(importer) ?? importer.slice(VIRTUAL_PREFIX.length))
         : importer;
+      // Remove .ts suffix that we add to virtual IDs
+      if (realImporter.endsWith(".vue.ts")) {
+        realImporter = realImporter.slice(0, -3);
+      }
       resolved = path.resolve(path.dirname(realImporter), id);
     } else {
+      // Relative path without importer - resolve from root
       resolved = path.resolve(root, id);
+    }
+    // Ensure we always return an absolute path
+    if (!path.isAbsolute(resolved)) {
+      resolved = path.resolve(root, resolved);
     }
     return path.normalize(resolved);
   }
