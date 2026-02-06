@@ -10,8 +10,6 @@ npm/vite-plugin-vize/wasm/
 
 # Native (NAPI) build output
 *.node
-npm/vize-native/index.js
-npm/vize-native/index.d.ts
 
 # Examples build output
 examples/*/dist/
