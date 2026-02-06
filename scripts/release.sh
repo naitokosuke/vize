@@ -132,7 +132,7 @@ rm -f Cargo.toml.bak
 
 # Update npm package versions
 echo "Updating npm packages..."
-for pkg in npm/vize-wasm npm/vize-native npm/vite-plugin-vize; do
+for pkg in npm/vize-wasm npm/vize-native npm/vite-plugin-vize npm/fresco-native npm/fresco npm/musea-mcp-server npm/vite-plugin-musea npm/vize; do
   if [ -f "$pkg/package.json" ]; then
     node -e "
       const fs = require('fs');
