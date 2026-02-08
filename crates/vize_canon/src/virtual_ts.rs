@@ -30,6 +30,16 @@ pub struct VirtualTsOutput {
     pub mappings: Vec<VizeMapping>,
 }
 
+/// A user-defined template global variable (e.g., `$t` from vue-i18n).
+/// Configure via `vize.config.json` `check.globals`.
+#[derive(Debug, Clone)]
+pub struct TemplateGlobal {
+    /// Variable name (e.g., "$t")
+    pub name: String,
+    /// TypeScript type annotation (e.g., "(...args: any[]) => string")
+    pub type_annotation: String,
+}
+
 /// Vue compiler macros - these are defined inside setup scope, NOT globally.
 /// This ensures they're only valid within <script setup>.
 /// Parameters and type parameters are prefixed with _ to avoid "unused" warnings.
@@ -186,7 +196,14 @@ pub fn generate_virtual_ts(
     template_ast: Option<&vize_relief::ast::RootNode<'_>>,
     template_offset: u32,
 ) -> VirtualTsOutput {
-    generate_virtual_ts_with_offsets(summary, script_content, template_ast, 0, template_offset)
+    generate_virtual_ts_with_offsets(
+        summary,
+        script_content,
+        template_ast,
+        0,
+        template_offset,
+        &[],
+    )
 }
 
 /// Generate virtual TypeScript with explicit script and template offsets.
@@ -194,12 +211,14 @@ pub fn generate_virtual_ts(
 /// `script_offset` is the byte offset of the script content within the SFC file.
 /// `template_offset` is the byte offset of the template content within the SFC file.
 /// When these are provided, source mappings point to SFC-absolute positions.
+/// `template_globals` are user-configured plugin globals (e.g., `$t`, `$route`).
 pub fn generate_virtual_ts_with_offsets(
     summary: &Croquis,
     script_content: Option<&str>,
     template_ast: Option<&vize_relief::ast::RootNode<'_>>,
     script_offset: u32,
     template_offset: u32,
+    template_globals: &[TemplateGlobal],
 ) -> VirtualTsOutput {
     let mut ts = String::new();
     let mut mappings: Vec<VizeMapping> = Vec::new();
@@ -346,6 +365,25 @@ pub fn generate_virtual_ts_with_offsets(
         for line in VUE_TEMPLATE_CONTEXT.lines() {
             ts.push_str("  ");
             ts.push_str(line);
+            ts.push('\n');
+        }
+
+        // Plugin globals (configured via vize.config.json check.globals)
+        if !template_globals.is_empty() {
+            ts.push_str("    // Plugin globals (configured via vize.config.json)\n");
+            for global in template_globals {
+                ts.push_str(&format!(
+                    "    const {}: {} = {{}} as any;\n",
+                    global.name, global.type_annotation
+                ));
+            }
+            ts.push_str("    ");
+            for (i, global) in template_globals.iter().enumerate() {
+                if i > 0 {
+                    ts.push(' ');
+                }
+                ts.push_str(&format!("void {};", global.name));
+            }
             ts.push('\n');
         }
         ts.push('\n');

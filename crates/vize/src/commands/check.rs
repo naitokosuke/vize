@@ -44,6 +44,11 @@ pub struct CheckArgs {
     /// Path to tsgo executable (can also use TSGO_PATH env var)
     #[arg(long)]
     pub tsgo_path: Option<String>,
+
+    /// Template globals to declare (e.g., "$t:(...args: any[]) => string,$route:any").
+    /// Overrides vize.config.json check.globals. Use "none" to disable all globals.
+    #[arg(long)]
+    pub globals: Option<String>,
 }
 
 /// JSON output structure
@@ -392,6 +397,23 @@ fn collect_vue_files(patterns: &[String]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Parse a single global entry string into a TemplateGlobal.
+/// Format: `"$name"` (typed as any) or `"$name:TypeAnnotation"`.
+fn parse_global_entry(entry: &str) -> vize_canon::virtual_ts::TemplateGlobal {
+    use vize_canon::virtual_ts::TemplateGlobal;
+    if let Some((name, type_ann)) = entry.split_once(':') {
+        TemplateGlobal {
+            name: name.trim().to_string(),
+            type_annotation: type_ann.trim().to_string(),
+        }
+    } else {
+        TemplateGlobal {
+            name: entry.trim().to_string(),
+            type_annotation: "any".to_string(),
+        }
+    }
+}
+
 /// Run type checking directly with tsgo LSP (no file I/O)
 fn run_direct(args: &CheckArgs) {
     use rayon::prelude::*;
@@ -403,6 +425,29 @@ fn run_direct(args: &CheckArgs) {
     use vize_croquis::{Analyzer, AnalyzerOptions};
 
     let start = Instant::now();
+
+    // Load vize.config.json and write JSON Schema
+    let config = crate::config::load_config(None);
+    crate::config::write_schema(None);
+
+    // Build template globals.
+    // Priority: CLI --globals > vize.config.json check.globals > default (empty)
+    let template_globals: Vec<vize_canon::virtual_ts::TemplateGlobal> =
+        if let Some(ref globals_str) = args.globals {
+            if globals_str == "none" {
+                vec![]
+            } else {
+                globals_str
+                    .split(',')
+                    .filter(|s| !s.is_empty())
+                    .map(parse_global_entry)
+                    .collect()
+            }
+        } else if let Some(ref globals_list) = config.check.globals {
+            globals_list.iter().map(|s| parse_global_entry(s)).collect()
+        } else {
+            vec![]
+        };
 
     // Collect .vue files
     let collect_start = Instant::now();
@@ -497,6 +542,7 @@ fn run_direct(args: &CheckArgs) {
                 template_ast.as_ref(),
                 script_offset,
                 template_offset,
+                &template_globals,
             );
 
             Some(GeneratedFile {
