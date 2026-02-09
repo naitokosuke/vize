@@ -321,9 +321,9 @@ export function vize(options: VizeOptions = {}): Plugin {
           realPath = realPath.slice(0, -3);
         }
         logger.log(`resolveId: redirecting stale vize: ID to ${realPath}`);
-        // For node_modules, return the original path to let Vite handle it normally
+        // Let Vite resolve node_modules files through its normal pipeline
         if (realPath.includes("node_modules")) {
-          return realPath;
+          return this.resolve(realPath, importer, { skipSelf: true });
         }
         // For project files, resolve through vize again
         return this.resolve(realPath, importer, { skipSelf: true });
