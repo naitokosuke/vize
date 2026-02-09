@@ -38,10 +38,10 @@
   },
   "dependencies": {
     "@nuxt/kit": "^4.0.0",
-    "@vizejs/vite-plugin": "workspace:*",
-    "@vizejs/vite-plugin-musea": "workspace:*",
-    "@vizejs/musea-nuxt": "workspace:*",
-    "vize": "workspace:*"
+    "@vizejs/vite-plugin": "workspace:^",
+    "@vizejs/vite-plugin-musea": "workspace:^",
+    "@vizejs/musea-nuxt": "workspace:^",
+    "vize": "workspace:^"
   },
   "devDependencies": {
     "tsdown": "^0.9.0",
