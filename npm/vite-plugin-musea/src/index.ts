@@ -1294,11 +1294,12 @@ function shouldProcess(file: string, include: string[], exclude: string[], root:
 function matchGlob(filepath: string, pattern: string): boolean {
   // Simple glob matching (supports * and **)
   // Use placeholder for ** to avoid * replacement interfering
+  const PLACEHOLDER = "<<GLOBSTAR>>";
   const regex = pattern
-    .replace(/\*\*/g, "\0GLOBSTAR\0")
+    .replaceAll("**", PLACEHOLDER)
     .replace(/\./g, "\\.")
     .replace(/\*/g, "[^/]*")
-    .replace(/\0GLOBSTAR\0/g, ".*");
+    .replaceAll(PLACEHOLDER, ".*");
 
   return new RegExp(`^${regex}$`).test(filepath);
 }

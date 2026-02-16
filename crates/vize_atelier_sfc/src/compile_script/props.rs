@@ -16,12 +16,64 @@ pub struct PropTypeInfo {
     pub optional: bool,
 }
 
+/// Strip TypeScript comments from source while preserving string literals.
+fn strip_ts_comments(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    let mut in_string = false;
+    let mut string_char = b'"';
+
+    while i < bytes.len() {
+        if in_string {
+            if bytes[i] == string_char && (i == 0 || bytes[i - 1] != b'\\') {
+                in_string = false;
+            }
+            result.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+
+        match bytes[i] {
+            b'\'' | b'"' | b'`' => {
+                in_string = true;
+                string_char = bytes[i];
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
+                // Line comment: skip until newline
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                // Block comment: skip until */
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                if i + 1 < bytes.len() {
+                    i += 2; // skip */
+                }
+            }
+            _ => {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+    }
+    result
+}
+
 /// Extract prop types from TypeScript type definition.
 /// Returns a Vec to preserve definition order (important for matching Vue's output).
 pub fn extract_prop_types_from_type(type_args: &str) -> Vec<(String, PropTypeInfo)> {
     let mut props = Vec::new();
 
-    let content = type_args.trim();
+    // Strip comments before parsing
+    let stripped = strip_ts_comments(type_args);
+    let content = stripped.trim();
     let content = if content.starts_with('{') && content.ends_with('}') {
         &content[1..content.len() - 1]
     } else {
@@ -29,25 +81,43 @@ pub fn extract_prop_types_from_type(type_args: &str) -> Vec<(String, PropTypeInf
     };
 
     // Split by commas/semicolons/newlines (but not inside nested braces)
-    let mut depth = 0;
+    let mut depth: i32 = 0;
     let mut current = String::new();
+    let chars: Vec<char> = content.chars().collect();
+    let mut i = 0;
 
-    for c in content.chars() {
+    while i < chars.len() {
+        let c = chars[i];
         match c {
             '{' | '<' | '(' | '[' => {
                 depth += 1;
                 current.push(c);
             }
-            '}' | '>' | ')' | ']' => {
-                depth -= 1;
+            '}' | ')' | ']' => {
+                if depth > 0 {
+                    depth -= 1;
+                }
                 current.push(c);
             }
-            ',' | ';' | '\n' if depth == 0 => {
+            '>' => {
+                // Don't count `>` as closing angle bracket when preceded by `=` (arrow function `=>`)
+                if i > 0 && chars[i - 1] == '=' {
+                    current.push(c);
+                } else {
+                    if depth > 0 {
+                        depth -= 1;
+                    }
+                    current.push(c);
+                }
+            }
+            ',' | ';' | '\n' if depth <= 0 => {
                 extract_prop_type_info(&current, &mut props);
                 current.clear();
+                depth = 0;
             }
             _ => current.push(c),
         }
+        i += 1;
     }
     extract_prop_type_info(&current, &mut props);
 

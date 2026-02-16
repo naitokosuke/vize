@@ -1,6 +1,5 @@
 ---
 source: crates/vize_atelier_sfc/src/snapshot_tests.rs
-assertion_line: 150
 expression: ts_output
 ---
 import { defineComponent as _defineComponent } from 'vue'
@@ -9,7 +8,7 @@ import { openBlock as _openBlock, createElementBlock as _createElementBlock, toD
 
 export default /*@__PURE__*/_defineComponent({
   __name: 'test',
-  setup(__props) {
+  async setup(__props) {
 
 const data = await fetch('/api').then(r => r.json())
 

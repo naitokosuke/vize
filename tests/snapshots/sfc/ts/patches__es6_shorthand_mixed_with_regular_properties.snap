@@ -1,6 +1,5 @@
 ---
 source: crates/vize_atelier_sfc/src/snapshot_tests.rs
-assertion_line: 196
 expression: ts_output
 ---
 import { defineComponent as _defineComponent } from 'vue'
@@ -17,7 +16,7 @@ const name = ref('test')
 return (_ctx: any,_cache: any) => {
   const _component_Component = _resolveComponent("Component")
 
-  return (_openBlock(), _createBlock(_component_Component, { options: { name.value, extra: 'value' } }, null, 8 /* PROPS */, ["options"]))
+  return (_openBlock(), _createBlock(_component_Component, { options: { name: name.value, extra: 'value' } }, null, 8 /* PROPS */, ["options"]))
 }
 }
 

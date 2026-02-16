@@ -22,9 +22,18 @@ use element::generate_root_node;
 use helpers::escape_js_string;
 use node::generate_node;
 
+fn is_ignorable_root_text(child: &TemplateChildNode<'_>) -> bool {
+    matches!(child, TemplateChildNode::Text(text) if text.content.chars().all(|c| c.is_whitespace()))
+}
+
 /// Generate code from root AST
 pub fn generate(root: &RootNode<'_>, options: CodegenOptions) -> CodegenResult {
     let mut ctx = CodegenContext::new(options);
+    let root_children: std::vec::Vec<&TemplateChildNode<'_>> = root
+        .children
+        .iter()
+        .filter(|child| !is_ignorable_root_text(child))
+        .collect();
 
     // Generate function signature
     generate_function_signature(&mut ctx);
@@ -40,11 +49,11 @@ pub fn generate(root: &RootNode<'_>, options: CodegenOptions) -> CodegenResult {
     ctx.push("return ");
 
     // Generate root node
-    if root.children.is_empty() {
+    if root_children.is_empty() {
         ctx.push("null");
-    } else if root.children.len() == 1 {
+    } else if root_children.len() == 1 {
         // Single root child - wrap in block
-        generate_root_node(&mut ctx, &root.children[0]);
+        generate_root_node(&mut ctx, root_children[0]);
     } else {
         // Multiple root children - wrap in fragment block
         ctx.use_helper(RuntimeHelper::OpenBlock);
@@ -58,7 +67,7 @@ pub fn generate(root: &RootNode<'_>, options: CodegenOptions) -> CodegenResult {
         ctx.push(ctx.helper(RuntimeHelper::Fragment));
         ctx.push(", null, [");
         ctx.indent();
-        for (i, child) in root.children.iter().enumerate() {
+        for (i, child) in root_children.iter().enumerate() {
             if i > 0 {
                 ctx.push(",");
             }
@@ -84,8 +93,12 @@ pub fn generate(root: &RootNode<'_>, options: CodegenOptions) -> CodegenResult {
     {
         all_helpers.push(RuntimeHelper::Unref);
     }
+    // Collect helpers from hoisted nodes - generate_hoists() takes &CodegenContext (immutable)
+    // so helpers used in hoisted VNodes aren't tracked via use_helper(). Pre-scan them here.
+    collect_hoist_helpers(root, &mut all_helpers);
     // Sort helpers for consistent output order
     all_helpers.sort();
+    all_helpers.dedup();
 
     let mut preamble = generate_preamble_from_helpers(&ctx, &all_helpers);
 
@@ -197,6 +210,61 @@ fn generate_hoists(ctx: &CodegenContext, root: &RootNode<'_>) -> String {
     unsafe { String::from_utf8_unchecked(hoists_code) }
 }
 
+/// Collect runtime helpers needed by hoisted nodes.
+/// Since generate_hoists() takes &CodegenContext (immutable), helpers used in hoisted
+/// VNodes are not tracked via use_helper(). This function pre-scans hoists to collect them.
+fn collect_hoist_helpers(root: &RootNode<'_>, helpers: &mut Vec<RuntimeHelper>) {
+    for node in root.hoists.iter().flatten() {
+        collect_helpers_from_js_child_node(node, helpers);
+    }
+}
+
+fn collect_helpers_from_js_child_node(node: &JsChildNode<'_>, helpers: &mut Vec<RuntimeHelper>) {
+    match node {
+        JsChildNode::VNodeCall(vnode) => collect_helpers_from_vnode_call(vnode, helpers),
+        JsChildNode::Object(obj) => {
+            for prop in &obj.properties {
+                collect_helpers_from_js_child_node(&prop.value, helpers);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_helpers_from_vnode_call(vnode: &VNodeCall<'_>, helpers: &mut Vec<RuntimeHelper>) {
+    // Match the logic in generate_vnode_call_to_bytes
+    if vnode.is_block {
+        helpers.push(RuntimeHelper::OpenBlock);
+        if vnode.is_component {
+            helpers.push(RuntimeHelper::CreateBlock);
+        } else {
+            helpers.push(RuntimeHelper::CreateElementBlock);
+        }
+    } else if vnode.is_component {
+        helpers.push(RuntimeHelper::CreateVNode);
+    } else {
+        helpers.push(RuntimeHelper::CreateElementVNode);
+    }
+
+    // Tag symbol (e.g., Fragment)
+    if let VNodeTag::Symbol(helper) = &vnode.tag {
+        helpers.push(*helper);
+    }
+
+    // Recurse into props (may contain nested VNodeCalls)
+    if let Some(props) = &vnode.props {
+        collect_helpers_from_props(props, helpers);
+    }
+}
+
+fn collect_helpers_from_props(props: &PropsExpression<'_>, helpers: &mut Vec<RuntimeHelper>) {
+    if let PropsExpression::Object(obj) = props {
+        for prop in &obj.properties {
+            collect_helpers_from_js_child_node(&prop.value, helpers);
+        }
+    }
+}
+
 /// Generate JsChildNode to bytes
 fn generate_js_child_node_to_bytes(
     ctx: &CodegenContext,
@@ -208,7 +276,9 @@ fn generate_js_child_node_to_bytes(
         JsChildNode::SimpleExpression(exp) => {
             if exp.is_static {
                 out.push(b'"');
-                out.extend_from_slice(exp.content.as_bytes());
+                // Escape special characters in static string values (newlines, quotes, etc.)
+                let escaped = crate::codegen::helpers::escape_js_string(&exp.content);
+                out.extend_from_slice(escaped.as_bytes());
                 out.push(b'"');
             } else {
                 // Expression should already be processed by transform
@@ -225,9 +295,8 @@ fn generate_js_child_node_to_bytes(
                 match &prop.key {
                     ExpressionNode::Simple(exp) => {
                         let key = &exp.content;
-                        // Check if key needs quoting (contains hyphen or other non-identifier chars)
-                        let needs_quote = key.contains('-')
-                            || key.chars().next().is_some_and(|c| c.is_ascii_digit());
+                        // Check if key needs quoting
+                        let needs_quote = !crate::codegen::helpers::is_valid_js_identifier(key);
                         if needs_quote {
                             out.push(b'"');
                             out.extend_from_slice(key.as_bytes());
@@ -344,9 +413,8 @@ fn generate_props_expression_to_bytes(
                 match &prop.key {
                     ExpressionNode::Simple(exp) => {
                         let key = &exp.content;
-                        // Check if key needs quoting (contains hyphen or other non-identifier chars)
-                        let needs_quote = key.contains('-')
-                            || key.chars().next().is_some_and(|c| c.is_ascii_digit());
+                        // Check if key needs quoting
+                        let needs_quote = !crate::codegen::helpers::is_valid_js_identifier(key);
                         if needs_quote {
                             out.push(b'"');
                             out.extend_from_slice(key.as_bytes());
